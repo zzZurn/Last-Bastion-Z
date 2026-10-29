@@ -1,0 +1,19 @@
+/[L-l]ibrary/
+/[T-t]emp/
+/[O-o]bj/
+/[B-b]uild/
+/[B-b]uilds/
+/[L-l]ogs/
+/[U-u]ser[S-s]ettings/
+
+# Memory dumps
+*.kdmp
+*.hdmp
+*.dmp
+
+# VS / VS Code temporary files
+.vs/
+.vscode/
+*.csproj
+*.sln
+*.suo
