@@ -180,6 +180,101 @@ public class PlacementManager : MonoBehaviour
         return placedCount;
     }
 
+    private static Shader _cachedSafeShader;
+    private static Material _cachedTemplateMat;
+
+    public static Shader GetSafeShader()
+    {
+        if (_cachedSafeShader != null) return _cachedSafeShader;
+        _cachedSafeShader = Shader.Find("Universal Render Pipeline/Lit") ??
+                            Shader.Find("Universal Render Pipeline/Unlit") ??
+                            Shader.Find("Standard") ??
+                            Shader.Find("Unlit/Color");
+        return _cachedSafeShader;
+    }
+
+    public static Material CreateSafeMaterial(Color color, bool transparent = true)
+    {
+        Material mat = null;
+
+        // 1. Try template material from Resources
+        if (_cachedTemplateMat == null)
+        {
+            _cachedTemplateMat = Resources.Load<Material>("PlacementPreviewMaterial");
+        }
+        if (_cachedTemplateMat != null)
+        {
+            mat = new Material(_cachedTemplateMat);
+        }
+
+        // 2. Try safe shader lookup
+        if (mat == null)
+        {
+            Shader s = GetSafeShader();
+            if (s != null)
+            {
+                mat = new Material(s);
+            }
+        }
+
+        // 3. Fallback: Clone from any existing MeshRenderer in the scene
+        if (mat == null)
+        {
+            MeshRenderer[] all = Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None);
+            foreach (var r in all)
+            {
+                if (r != null && r.sharedMaterial != null && r.sharedMaterial.shader != null &&
+                    !r.sharedMaterial.shader.name.Contains("Error"))
+                {
+                    mat = new Material(r.sharedMaterial);
+                    break;
+                }
+            }
+        }
+
+        if (mat == null)
+        {
+            mat = new Material(Shader.Find("Sprites/Default"));
+        }
+
+        SetMaterialProperties(mat, color, transparent);
+        return mat;
+    }
+
+    private static void SetMaterialProperties(Material mat, Color color, bool transparent)
+    {
+        if (mat == null) return;
+        mat.color = color;
+        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+        if (mat.HasProperty("_Color")) mat.SetColor("_Color", color);
+
+        if (transparent)
+        {
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f); // 1 = Transparent in URP
+            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 0f);     // 0 = Alpha blend
+            if (mat.HasProperty("_SrcBlend")) mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (mat.HasProperty("_DstBlend")) mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (mat.HasProperty("_ZWrite")) mat.SetInt("_ZWrite", 0);
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        }
+    }
+
+    private void SetRendererColor(Renderer rend, Color color, bool transparent = true)
+    {
+        if (rend == null) return;
+
+        // If current material has an invalid or missing shader (common with CreatePrimitive in standalone builds), replace it!
+        if (rend.sharedMaterial == null || rend.sharedMaterial.shader == null ||
+            rend.sharedMaterial.shader.name.Contains("Error") ||
+            (rend.sharedMaterial.shader.name.Contains("Standard") && !Application.isEditor))
+        {
+            rend.material = CreateSafeMaterial(color, transparent);
+            return;
+        }
+
+        SetMaterialProperties(rend.material, color, transparent);
+    }
+
     void CreatePreviewObject()
     {
         previewObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -191,7 +286,7 @@ public class PlacementManager : MonoBehaviour
         Renderer rend = previewObject.GetComponent<Renderer>();
         if (rend != null)
         {
-            rend.material.color = new Color(0.2f, 1f, 0.2f, 0.5f);
+            rend.material = CreateSafeMaterial(new Color(0.2f, 1f, 0.2f, 0.6f), true);
         }
 
         UpdatePreviewAppearance();
@@ -332,21 +427,21 @@ public class PlacementManager : MonoBehaviour
                         {
                             // While holding & dragging, preview block turns BLUE!
                             bool canQueueHere = CanAddToDragQueue(cell.x, cell.y, selectedType) || dragOccupiedCells.Contains(cell);
-                            rend.material.color = canQueueHere
+                            SetRendererColor(rend, canQueueHere
                                 ? new Color(0.15f, 0.65f, 1.0f, 0.78f) // Blue drag block
-                                : new Color(1f, 0.2f, 0.2f, 0.6f);
+                                : new Color(1f, 0.2f, 0.2f, 0.6f), true);
                         }
                         else if (isLocked)
                         {
-                            rend.material.color = new Color(1f, 0.55f, 0f, 0.7f); // Orange locked indicator
+                            SetRendererColor(rend, new Color(1f, 0.55f, 0f, 0.7f), true); // Orange locked indicator
                         }
                         else
                         {
                             int maxLimit = Building.GetMaxBuildingPlacementLimit(selectedType);
                             bool isLimitReached = !isDevFree && (maxLimit > 0 && Building.GetActiveBuildingCount(selectedType) >= maxLimit);
-                            rend.material.color = (isValid && !isLimitReached)
+                            SetRendererColor(rend, (isValid && !isLimitReached)
                                 ? new Color(0.2f, 1f, 0.2f, 0.6f)      // Green hover block
-                                : new Color(1f, 0.2f, 0.2f, 0.6f);     // Red blocked/capped
+                                : new Color(1f, 0.2f, 0.2f, 0.6f), true);     // Red blocked/capped
                         }
                     }
                 }
@@ -368,7 +463,7 @@ public class PlacementManager : MonoBehaviour
                     Renderer rend = previewObject.GetComponent<Renderer>();
                     if (rend != null)
                     {
-                        rend.material.color = isOccupied ? new Color(1f, 0.1f, 0.1f, 0.7f) : new Color(0.5f, 0.5f, 0.5f, 0.3f);
+                        SetRendererColor(rend, isOccupied ? new Color(1f, 0.1f, 0.1f, 0.7f) : new Color(0.5f, 0.5f, 0.5f, 0.3f), true);
                     }
                 }
 
@@ -397,7 +492,7 @@ public class PlacementManager : MonoBehaviour
                         Renderer rend = previewObject.GetComponent<Renderer>();
                         if (rend != null)
                         {
-                            rend.material.color = isOccupied ? new Color(1f, 0.9f, 0.2f, 0.7f) : new Color(0.4f, 0.4f, 0.4f, 0.3f);
+                            SetRendererColor(rend, isOccupied ? new Color(1f, 0.9f, 0.2f, 0.7f) : new Color(0.4f, 0.4f, 0.4f, 0.3f), true);
                         }
                     }
 
@@ -430,7 +525,7 @@ public class PlacementManager : MonoBehaviour
                         Renderer rend = previewObject.GetComponent<Renderer>();
                         if (rend != null)
                         {
-                            rend.material.color = isValid ? new Color(0.2f, 1f, 0.3f, 0.65f) : new Color(1f, 0.2f, 0.2f, 0.65f);
+                            SetRendererColor(rend, isValid ? new Color(0.2f, 1f, 0.3f, 0.65f) : new Color(1f, 0.2f, 0.2f, 0.65f), true);
                         }
                     }
 
@@ -541,7 +636,7 @@ public class PlacementManager : MonoBehaviour
         Renderer rend = blueBlock.GetComponent<Renderer>();
         if (rend != null)
         {
-            rend.material.color = new Color(0.15f, 0.65f, 1.0f, 0.72f); // Blue queued block
+            rend.material = CreateSafeMaterial(new Color(0.15f, 0.65f, 1.0f, 0.72f), true); // Blue queued block
         }
 
         dragPreviewBlocks.Add(blueBlock);

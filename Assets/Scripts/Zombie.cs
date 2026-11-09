@@ -482,6 +482,12 @@ public class Zombie : MonoBehaviour
                 s.TakeDamage(Mathf.Max(damage, s.health + 9999f));
             }
         }
+        else if (s.isSMGTrooper || s.isBurstMode || (s.maxHealth <= 50f && !s.isLightTank && !s.isICBMLauncher))
+        {
+            // Tyrant Boss Buff: Can ONE-SHOT SMG Trooper (and frail 50 HP infantry)!
+            s.TakeDamage(Mathf.Max(damage, s.health + 9999f));
+            Debug.Log($"[Boss Tyrant] 💥 Tyrant Ground Slam ONE-SHOT SMG Trooper ({s.name})!");
+        }
         else
         {
             s.TakeDamage(damage);
@@ -763,7 +769,7 @@ public class Zombie : MonoBehaviour
         }
 
         currentHealth -= dmg;
-        AudioHelper.PlaySound(SoundEffect.Hit, 0.35f);
+        AudioHelper.PlaySound(SoundEffect.ZombieHit, 0.12f);
 
         if (isBombaz && currentHealth > 0f && !isBombazEnraged && currentHealth <= maxHealth * 0.40f)
         {

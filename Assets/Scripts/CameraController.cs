@@ -42,6 +42,11 @@ public class CameraController : MonoBehaviour
 
     void Update()
     {
+        if (GameManager.Instance != null && GameManager.Instance.CurrentState == GameManager.GameState.MainMenu)
+        {
+            return;
+        }
+
         // Hotkey: V to toggle between PvZ tilted angle (50°) and Top-Down view (90°)
         if (Input.GetKeyDown(KeyCode.V))
         {

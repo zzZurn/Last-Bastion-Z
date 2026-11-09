@@ -22,6 +22,7 @@ public class UIManager : MonoBehaviour
     public bool isBuildMenuOpen = true;
     public bool isMasterHudVisible = true;
     public bool isDevPanelOpen = false;
+    public bool isQuitConfirmOpen = false;
     private string devPasscodeInput = "";
     private string devAuthStatusMsg = "";
 
@@ -47,6 +48,30 @@ public class UIManager : MonoBehaviour
 
     void Update()
     {
+        // Hotkey: Enter / Space to start game from Main Menu
+        if (GameManager.Instance != null && GameManager.Instance.CurrentState == GameManager.GameState.MainMenu)
+        {
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || Input.GetKeyDown(KeyCode.Space))
+            {
+                AudioHelper.PlaySound(SoundEffect.ButtonClick);
+                GameManager.Instance.StartGameFromMenu();
+                return;
+            }
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                QuitGame();
+                return;
+            }
+            return;
+        }
+
+        // Hotkey: Escape to toggle in-game Quit confirmation dialog
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            isQuitConfirmOpen = !isQuitConfirmOpen;
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+        }
+
         // Hotkey: Enter / Space / R to restart when Game Over
         if (GameManager.Instance != null && GameManager.Instance.CurrentState == GameManager.GameState.GameOver)
         {
@@ -120,6 +145,11 @@ public class UIManager : MonoBehaviour
     /// </summary>
     public bool IsPointerOverUI()
     {
+        if (isQuitConfirmOpen) return true;
+        if (GameManager.Instance != null && GameManager.Instance.CurrentState == GameManager.GameState.MainMenu)
+        {
+            return true;
+        }
         if (!isMasterHudVisible) return false;
 
         // Convert Unity screen coordinates (bottom-left origin) to GUI coordinates (top-left origin)
@@ -318,6 +348,12 @@ public class UIManager : MonoBehaviour
 
         if (GameManager.Instance == null) return;
 
+        if (GameManager.Instance.CurrentState == GameManager.GameState.MainMenu)
+        {
+            DrawMainMenuUI();
+            return;
+        }
+
         // Toggle master HUD button in corner
         if (GUI.Button(new Rect(Screen.width - 110, 4, 100, 20), isMasterHudVisible ? "👁️ Hide HUD (H)" : "👁️ Show HUD (H)", smallButtonStyle))
         {
@@ -343,6 +379,14 @@ public class UIManager : MonoBehaviour
                 CrossMapVisualizer.Instance.ToggleGridVisible();
                 AudioHelper.PlaySound(SoundEffect.ButtonClick);
             }
+        }
+
+        // Quit / Exit game button in top corner
+        GUI.backgroundColor = new Color(0.9f, 0.35f, 0.35f);
+        if (GUI.Button(new Rect(Screen.width - 455, 4, 100, 20), "🚪 Quit (Esc)", smallButtonStyle))
+        {
+            isQuitConfirmOpen = !isQuitConfirmOpen;
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
         }
         GUI.backgroundColor = Color.white;
 
@@ -379,6 +423,50 @@ public class UIManager : MonoBehaviour
         {
             DrawDevToolsPanel();
         }
+
+        if (isQuitConfirmOpen)
+        {
+            DrawQuitConfirmDialog();
+        }
+    }
+
+    void DrawMainMenuUI()
+    {
+        float panelW = 320f;
+        float panelH = 175f;
+        float panelX = Screen.width / 2f - panelW / 2f;
+        float panelY = Screen.height * 0.65f;
+
+        GUI.Box(new Rect(panelX, panelY, panelW, panelH), GUIContent.none, boxStyle);
+
+        GUI.Label(new Rect(panelX, panelY + 12f, panelW, 24f), "LAST BASTION Z", headerStyle);
+
+        GUIStyle startBtnStyle = new GUIStyle(buttonStyle)
+        {
+            fontSize = 16,
+            fontStyle = FontStyle.Bold
+        };
+
+        GUI.backgroundColor = new Color(0.25f, 0.85f, 0.35f);
+        if (GUI.Button(new Rect(panelX + 35f, panelY + 46f, panelW - 70f, 50f), "▶ START GAME", startBtnStyle))
+        {
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+            GameManager.Instance.StartGameFromMenu();
+        }
+
+        GUIStyle quitBtnStyle = new GUIStyle(buttonStyle)
+        {
+            fontSize = 14,
+            fontStyle = FontStyle.Bold
+        };
+
+        GUI.backgroundColor = new Color(0.85f, 0.25f, 0.25f);
+        if (GUI.Button(new Rect(panelX + 35f, panelY + 106f, panelW - 70f, 44f), "🚪 QUIT GAME", quitBtnStyle))
+        {
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+            QuitGame();
+        }
+        GUI.backgroundColor = Color.white;
     }
 
     void DrawTopBar()
@@ -1234,13 +1322,14 @@ public class UIManager : MonoBehaviour
         int reachedStage = GameManager.Instance != null ? GameManager.Instance.CurrentDay : 1;
         GUI.Label(new Rect(dialogX + 30f, dialogY + 95f, dialogW - 60f, 50f), $"The zombie horde overwhelmed your barricades and destroyed the fortress core.\nYou survived until Stage {reachedStage}.\nWill you take command again and rebuild humanity's bastion?", descBodyStyle);
 
-        Rect btnRect = new Rect(dialogX + dialogW / 2f - 140f, dialogY + 185f, 280f, 50f);
+        Rect restartRect = new Rect(dialogX + 35f, dialogY + 185f, 225f, 50f);
+        Rect quitRect = new Rect(dialogX + 280f, dialogY + 185f, 225f, 50f);
         bool triggerRestart = false;
 
         Event e = Event.current;
         if (e != null)
         {
-            if (e.isMouse && e.type == EventType.MouseDown && btnRect.Contains(e.mousePosition))
+            if (e.isMouse && e.type == EventType.MouseDown && restartRect.Contains(e.mousePosition))
             {
                 triggerRestart = true;
                 e.Use();
@@ -1256,9 +1345,16 @@ public class UIManager : MonoBehaviour
         }
 
         GUI.backgroundColor = new Color(0.9f, 0.35f, 0.25f);
-        if (GUI.Button(btnRect, "🔄 RESTART CAMPAIGN (R / ENTER)", buttonStyle))
+        if (GUI.Button(restartRect, "🔄 RESTART (R / ENTER)", buttonStyle))
         {
             triggerRestart = true;
+        }
+
+        GUI.backgroundColor = new Color(0.5f, 0.5f, 0.5f);
+        if (GUI.Button(quitRect, "🚪 QUIT GAME", buttonStyle))
+        {
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+            QuitGame();
         }
         GUI.backgroundColor = Color.white;
 
@@ -1271,6 +1367,12 @@ public class UIManager : MonoBehaviour
 
     void DrawRouteSelectionUI()
     {
+        if (GameManager.Instance != null && GameManager.Instance.CurrentDay >= 30)
+        {
+            DrawWave30MandatoryRouteUI();
+            return;
+        }
+
         bool showEliteRoute = (GameManager.Instance != null && GameManager.Instance.isEliteRouteAvailable);
         bool showEventRoute = (GameManager.Instance != null && GameManager.Instance.isEventRouteAvailable);
 
@@ -1308,6 +1410,58 @@ public class UIManager : MonoBehaviour
             DrawEventRouteCard(curCardX, routeY, cardW, cardH);
             curCardX += cardW + spacing;
         }
+    }
+
+    void DrawWave30MandatoryRouteUI()
+    {
+        float dialogW = 600f;
+        float dialogH = 345f;
+        float dialogX = Screen.width / 2f - dialogW / 2f;
+        float dialogY = Screen.height / 2f - dialogH / 2f;
+
+        GUI.backgroundColor = new Color(0.45f, 0.08f, 0.08f, 0.96f);
+        GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), "⚠️ FINAL STAGE 30 — MANDATORY ELITE ASSAULT", boxStyle);
+        GUI.backgroundColor = Color.white;
+
+        GUIStyle climaxTitleStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 15,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.MiddleCenter,
+            wordWrap = false
+        };
+        climaxTitleStyle.normal.textColor = new Color(1f, 0.85f, 0.2f);
+        GUI.Label(new Rect(dialogX + 15, dialogY + 38, dialogW - 30, 28), "⚡ FINAL CLIMAX: SURVIVE THE ULTIMATE HORDE INVASION", climaxTitleStyle);
+
+        GUIStyle bodyStyle = new GUIStyle(descBodyStyle)
+        {
+            fontSize = 12,
+            richText = true,
+            wordWrap = true
+        };
+
+        string alertText =
+            "<color=#ff6666><b>CRITICAL ALERT: WAVE 30 FORCES ELITE ASSAULT MODE!</b></color>\n\n" +
+            "• <b>2X Elite Replacement Rate</b>: 36% of zombies are upgraded to Elite!\n" +
+            "• <b>+20% Surge Horde Size</b>: +20% more zombies swarming all lanes!\n" +
+            "• <b>Tyrant Boss Alpha</b>: Bosses will ONE-SHOT SMG troopers!\n" +
+            "• <b>Final Stand</b>: Eliminate all hostiles to win the campaign!";
+
+        GUI.Label(new Rect(dialogX + 30, dialogY + 76, dialogW - 60, 155), alertText, bodyStyle);
+
+        GUIStyle engageBtnStyle = new GUIStyle(buttonStyle)
+        {
+            fontSize = 14,
+            fontStyle = FontStyle.Bold
+        };
+
+        GUI.backgroundColor = new Color(1.0f, 0.22f, 0.15f);
+        if (GUI.Button(new Rect(dialogX + 50, dialogY + 252, dialogW - 100, 52), "💀 ENGAGE FINAL ELITE HORDE (2X ELITE)", engageBtnStyle))
+        {
+            AudioHelper.PlaySound(SoundEffect.EventAlert, 1.0f);
+            GameManager.Instance.SelectEliteBattleRoute();
+        }
+        GUI.backgroundColor = Color.white;
     }
 
     void DrawBattleRouteCard(float x, float y, float w, float h)
@@ -1364,7 +1518,7 @@ public class UIManager : MonoBehaviour
     void DrawVictoryUI()
     {
         float dialogW = 540f;
-        float dialogH = 280f;
+        float dialogH = 310f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
         float dialogY = Screen.height / 2f - dialogH / 2f;
 
@@ -1376,18 +1530,76 @@ public class UIManager : MonoBehaviour
 
         // Endless mode button
         GUI.backgroundColor = new Color(0.2f, 0.8f, 0.3f);
-        if (GUI.Button(new Rect(dialogX + 40, dialogY + 160, 220, 50), $"🔥 ENDLESS MODE (Wave {totalStages + 1}+)", buttonStyle))
+        if (GUI.Button(new Rect(dialogX + 35, dialogY + 150, 225, 48), $"🔥 ENDLESS (Wave {totalStages + 1}+)", buttonStyle))
         {
             GameManager.Instance.ContinueEndlessMode();
         }
 
         // Restart campaign button
         GUI.backgroundColor = new Color(0.9f, 0.4f, 0.2f);
-        if (GUI.Button(new Rect(dialogX + 280, dialogY + 160, 220, 50), "🔄 RESTART CAMPAIGN", buttonStyle))
+        if (GUI.Button(new Rect(dialogX + 280, dialogY + 150, 225, 48), "🔄 RESTART CAMPAIGN", buttonStyle))
         {
             GameManager.Instance.RestartCampaign();
         }
+
+        // Quit game button
+        GUI.backgroundColor = new Color(0.55f, 0.55f, 0.55f);
+        if (GUI.Button(new Rect(dialogX + 160, dialogY + 215, 220, 42), "🚪 QUIT GAME", buttonStyle))
+        {
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+            QuitGame();
+        }
         GUI.backgroundColor = Color.white;
+    }
+
+    void DrawQuitConfirmDialog()
+    {
+        float dialogW = 380f;
+        float dialogH = 195f;
+        float dialogX = Screen.width / 2f - dialogW / 2f;
+        float dialogY = Screen.height / 2f - dialogH / 2f;
+
+        GUI.backgroundColor = new Color(0.22f, 0.12f, 0.12f, 0.98f);
+        GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), "🚪 QUIT GAME", boxStyle);
+        GUI.backgroundColor = Color.white;
+
+        GUI.Label(new Rect(dialogX + 20, dialogY + 36, dialogW - 40, 24), "What would you like to do?", headerStyle);
+
+        // 1. Return to Main Menu
+        GUI.backgroundColor = new Color(1.0f, 0.72f, 0.2f);
+        if (GUI.Button(new Rect(dialogX + 35, dialogY + 72, dialogW - 70, 36), "🏠 RETURN TO MAIN MENU", buttonStyle))
+        {
+            isQuitConfirmOpen = false;
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+            GameManager.Instance?.SetState(GameManager.GameState.MainMenu);
+        }
+
+        // 2. Exit to Desktop
+        GUI.backgroundColor = new Color(0.9f, 0.28f, 0.25f);
+        if (GUI.Button(new Rect(dialogX + 35, dialogY + 118, 145, 38), "🚪 EXIT GAME", buttonStyle))
+        {
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+            QuitGame();
+        }
+
+        // 3. Cancel
+        GUI.backgroundColor = new Color(0.55f, 0.55f, 0.55f);
+        if (GUI.Button(new Rect(dialogX + 195, dialogY + 118, dialogW - 230, 38), "❌ CANCEL (ESC)", buttonStyle))
+        {
+            isQuitConfirmOpen = false;
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+        }
+        GUI.backgroundColor = Color.white;
+    }
+
+    public static void QuitGame()
+    {
+        Debug.Log("[Game] Application Quit requested.");
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 
     void DrawDevToolsPanel()

@@ -5,8 +5,8 @@ public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
 
-    public enum GameState { Planning, Combat, Reward, RouteSelection, EventDilemma, Victory, GameOver }
-    public GameState CurrentState { get; private set; } = GameState.Planning;
+    public enum GameState { MainMenu, Planning, Combat, Reward, RouteSelection, EventDilemma, Victory, GameOver }
+    public GameState CurrentState { get; private set; } = GameState.MainMenu;
 
     public int CurrentDay { get; private set; } = 1;
     public int maxStages = 30; // 30-Stage Campaign with Cross Map unlock after Stage 15
@@ -81,10 +81,20 @@ public class GameManager : MonoBehaviour
         {
             gameObject.AddComponent<CrossMapVisualizer>();
         }
+        if (FindFirstObjectByType<TitleLogo3D>() == null)
+        {
+            gameObject.AddComponent<TitleLogo3D>();
+        }
 
         ApplyPostApocalypseTheme();
         SetGameSpeed(1.0f);
+        SetState(GameState.MainMenu);
+    }
+
+    public void StartGameFromMenu()
+    {
         SetState(GameState.Planning);
+        Debug.Log("[GameManager] Started game from Main Menu -> Stage 1 Planning.");
     }
 
     public void SetGameSpeed(float speed)
@@ -221,6 +231,18 @@ public class GameManager : MonoBehaviour
         CurrentDay++;
         isEliteBattleRoute = false;
 
+        // Wave 30 Climax: Mandatory Elite Battle Route
+        if (CurrentDay == 30)
+        {
+            isEliteBattleRoute = true;
+            isEliteRouteAvailable = true;
+            isEventRouteAvailable = false;
+            OnDayChanged?.Invoke(CurrentDay);
+            SetState(GameState.RouteSelection);
+            Debug.Log($"[GameManager] Proceeded to Wave 30 | MANDATORY ELITE ASSAULT CLIMAX!");
+            return;
+        }
+
         // After Stage 5 (CurrentDay > 5), 35% chance for Elite Battle Route to appear!
         isEliteRouteAvailable = (CurrentDay > 5) && (UnityEngine.Random.value < 0.35f);
 
@@ -352,6 +374,12 @@ public class GameManager : MonoBehaviour
 
     public void SelectRoute(bool isBattle)
     {
+        if (CurrentDay == 30)
+        {
+            SelectEliteBattleRoute();
+            return;
+        }
+
         isEliteBattleRoute = false;
         if (isBattle)
         {
@@ -398,8 +426,17 @@ public class GameManager : MonoBehaviour
     public void DevSetStage(int stage)
     {
         CurrentDay = Mathf.Max(1, stage);
-        isEliteRouteAvailable = (CurrentDay > 5) && (UnityEngine.Random.value < 0.35f);
-        isEventRouteAvailable = (UnityEngine.Random.value < 0.20f);
+        if (CurrentDay == 30)
+        {
+            isEliteBattleRoute = true;
+            isEliteRouteAvailable = true;
+            isEventRouteAvailable = false;
+        }
+        else
+        {
+            isEliteRouteAvailable = (CurrentDay > 5) && (UnityEngine.Random.value < 0.35f);
+            isEventRouteAvailable = (UnityEngine.Random.value < 0.20f);
+        }
         OnDayChanged?.Invoke(CurrentDay);
         Debug.Log($"[DevTools] Jumped to Stage {CurrentDay}");
     }

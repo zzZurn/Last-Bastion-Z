@@ -352,7 +352,7 @@ public class Building : MonoBehaviour
         if (rend != null)
         {
             // High-caliber golden-amber tracer to distinguish 2x damage non-piercing tower rounds
-            rend.material.color = new Color(1.0f, 0.78f, 0.22f);
+            rend.material = PlacementManager.CreateSafeMaterial(new Color(1.0f, 0.78f, 0.22f), false);
         }
 
         // sniper = false -> NO piercing through 1st enemy!

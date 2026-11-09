@@ -170,7 +170,6 @@ public class Bullet : MonoBehaviour
                 hitZombies.Add(hitZombie);
                 hitZombie.TakeDamage(damage);
                 SpawnHitImpactVisual(hitZombie.transform.position, true);
-                AudioHelper.PlaySound(SoundEffect.Hit, 0.65f);
 
                 // If allowed more pierces (e.g. Lv.3 Sniper allows 2 pierces, hitting up to 3 zombies)
                 if (currentPierces < maxPierces)

@@ -66,6 +66,12 @@ public class WaveManager : MonoBehaviour
         int midBonus = (day > 3) ? ((day - 3) * 4 + 2) : 0;
         totalZombiesInWave = 5 + (day * 4) + midBonus;
 
+        // Wave 26+ (after Wave 25): Zombie count increased by 20%!
+        if (day > 25)
+        {
+            totalZombiesInWave = Mathf.RoundToInt(totalZombiesInWave * 1.20f);
+        }
+
         zombiesSpawned = 0;
         zombiesRemaining = totalZombiesInWave;
         activeZombies.Clear();
@@ -212,9 +218,10 @@ public class WaveManager : MonoBehaviour
             variant = "Tank";
         }
 
-        // Elite Battle Route: Randomly upgrade spawned non-boss zombies into Elite units!
-        bool isEliteRoute = (GameManager.Instance != null && GameManager.Instance.isEliteBattleRoute);
-        bool upgradeToElite = (isEliteRoute && variant != "Boss" && Random.value < 0.45f);
+        // Elite Battle Route: Randomly upgrade spawned non-boss zombies into Elite units (Base 18%, Wave 30 is 2x = 36%)
+        bool isEliteRoute = (GameManager.Instance != null && GameManager.Instance.isEliteBattleRoute) || (day >= 30);
+        float eliteChance = (day >= 30) ? 0.36f : 0.18f;
+        bool upgradeToElite = (isEliteRoute && variant != "Boss" && Random.value < eliteChance);
 
         GameObject zObj;
         if (zombiePrefab != null)
@@ -262,7 +269,7 @@ public class WaveManager : MonoBehaviour
                 float bossHp = 750f + (day * 65f);
                 z.maxHealth = bossHp;
                 z.currentHealth = bossHp;
-                z.damage = 42f;
+                z.damage = 55f; // Buffed to 55f: naturally one-shots SMG troopers (50 HP)
                 z.attackRate = 1.8f;
                 z.moveSpeed = 1.15f;
                 z.damageResistance = 0.5f; // 50% bullet resistance

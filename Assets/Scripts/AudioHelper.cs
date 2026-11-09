@@ -26,7 +26,10 @@ public enum SoundEffect
     WaveVictory,
     GameOver,
     ButtonClick,
-    EventAlert
+    EventAlert,
+    ZombieHit,
+    GuardianStomp,
+    GuardianPunch
 }
 
 public static class AudioHelper
@@ -48,6 +51,32 @@ public static class AudioHelper
         IsMuted = PlayerPrefs.GetInt("LastBastion_IsMuted", 0) == 1;
         _preMuteVolume = (MasterVolume > 0.05f) ? MasterVolume : 1.0f;
         AudioListener.volume = IsMuted ? 0f : MasterVolume;
+
+        // Pre-warm Guardian audio clips in memory to eliminate any runtime I/O latency
+        PreloadClip(SoundEffect.GuardianPunch);
+        PreloadClip(SoundEffect.GuardianStomp);
+    }
+
+    private static void PreloadClip(SoundEffect effect)
+    {
+        if (_clipCache.ContainsKey(effect) && _clipCache[effect] != null) return;
+        AudioClip clip = null;
+        if (effect == SoundEffect.GuardianPunch)
+        {
+            clip = Resources.Load<AudioClip>("Audio/soraatwod-punch-416719");
+            if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianPunch");
+            if (clip != null) clip = CreateInstantClip(clip, 0.035f);
+        }
+        else if (effect == SoundEffect.GuardianStomp)
+        {
+            clip = Resources.Load<AudioClip>("Audio/freesound_community-stomp2-93279");
+            if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianStomp");
+            if (clip != null) clip = CreateInstantClip(clip, 0.035f);
+        }
+        if (clip != null)
+        {
+            _clipCache[effect] = clip;
+        }
     }
 
     public static void SetMasterVolume(float volume)
@@ -144,6 +173,8 @@ public static class AudioHelper
             case SoundEffect.SMGGrenade1:
             case SoundEffect.SMGGrenade2:
             case SoundEffect.TankExplosionDebris:
+            case SoundEffect.GuardianStomp:
+            case SoundEffect.GuardianPunch:
                 return true;
             default:
                 return false;
@@ -245,6 +276,18 @@ public static class AudioHelper
                 {
                     clip = Resources.Load<AudioClip>("Audio/ICBMExplosion");
                 }
+                else if (effect == SoundEffect.GuardianStomp)
+                {
+                    clip = Resources.Load<AudioClip>("Audio/freesound_community-stomp2-93279");
+                    if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianStomp");
+                    if (clip != null) clip = CreateInstantClip(clip, 0.035f);
+                }
+                else if (effect == SoundEffect.GuardianPunch)
+                {
+                    clip = Resources.Load<AudioClip>("Audio/soraatwod-punch-416719");
+                    if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianPunch");
+                    if (clip != null) clip = CreateInstantClip(clip, 0.035f);
+                }
 
                 if (clip == null)
                 {
@@ -259,7 +302,9 @@ public static class AudioHelper
                         effect != SoundEffect.TankShoot1 &&
                         effect != SoundEffect.TankShoot2 &&
                         effect != SoundEffect.TankExplosionDebris &&
-                        effect != SoundEffect.ICBMExplosion)
+                        effect != SoundEffect.ICBMExplosion &&
+                        effect != SoundEffect.GuardianStomp &&
+                        effect != SoundEffect.GuardianPunch)
                     {
                         _clipCache[effect] = clip;
                     }
@@ -314,6 +359,85 @@ public static class AudioHelper
     {
         SoundEffect effect = (Random.value < 0.5f) ? SoundEffect.TankShoot1 : SoundEffect.TankShoot2;
         PlaySound(effect, volume);
+    }
+
+    /// <summary>
+    /// Plays Guardian normal stomp attack sound (freesound_community-stomp2-93279)
+    /// </summary>
+    public static void PlayGuardianStomp(float volume = 0.85f)
+    {
+        PlaySound(SoundEffect.GuardianStomp, volume);
+    }
+
+    /// <summary>
+    /// Plays Guardian shield push ability punch sound (soraatwod-punch-416719)
+    /// </summary>
+    public static void PlayGuardianPunch(float volume = 0.95f)
+    {
+        PlaySound(SoundEffect.GuardianPunch, volume);
+    }
+
+    /// <summary>
+    /// Trims leading dead-air or silence from an audio clip so it starts playing immediately with zero latency.
+    /// </summary>
+    private static AudioClip CreateInstantClip(AudioClip original, float threshold = 0.035f)
+    {
+        if (original == null) return null;
+
+        try
+        {
+            int channels = original.channels;
+            int freq = original.frequency;
+            float[] allSamples = new float[original.samples * channels];
+            original.GetData(allSamples, 0);
+
+            int attackSample = -1;
+            for (int i = 0; i < allSamples.Length; i++)
+            {
+                if (Mathf.Abs(allSamples[i]) > threshold)
+                {
+                    attackSample = i / channels;
+                    break;
+                }
+            }
+
+            // Only trim if there is noticeable leading silence (> 0.015s = 15ms)
+            if (attackSample < Mathf.RoundToInt(freq * 0.015f))
+            {
+                return original;
+            }
+
+            // Leave tiny 3ms pre-roll to preserve natural attack transient
+            int preRoll = Mathf.RoundToInt(freq * 0.003f);
+            int startSample = Mathf.Max(0, attackSample - preRoll);
+            int newFrames = original.samples - startSample;
+            if (newFrames <= 0) return original;
+
+            float[] trimmed = new float[newFrames * channels];
+            System.Array.Copy(allSamples, startSample * channels, trimmed, 0, trimmed.Length);
+
+            // 2ms micro fade-in at sample 0 to guarantee zero click/pop
+            int fadeFrames = Mathf.RoundToInt(freq * 0.002f);
+            for (int f = 0; f < fadeFrames && f < newFrames; f++)
+            {
+                float t = (float)f / fadeFrames;
+                for (int c = 0; c < channels; c++)
+                {
+                    trimmed[f * channels + c] *= t;
+                }
+            }
+
+            AudioClip trimmedClip = AudioClip.Create($"{original.name}_Instant", newFrames, channels, freq, false);
+            trimmedClip.SetData(trimmed, 0);
+            float removedSec = (float)startSample / freq;
+            Debug.Log($"[AudioHelper] Trimmed {removedSec:F4}s leading silence from '{original.name}'! Sound now triggers INSTANTLY at 0.000s.");
+            return trimmedClip;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[AudioHelper] Failed to trim clip {original.name}: {ex.Message}");
+            return original;
+        }
     }
 
     private static AudioClip GenerateProceduralClip(SoundEffect effect)
@@ -430,6 +554,43 @@ public static class AudioHelper
                 {
                     float env = 1f - (t / duration);
                     return (Random.value * 2f - 1f) * env;
+                };
+                break;
+
+            case SoundEffect.ZombieHit:
+                duration = 0.05f;
+                waveGenerator = t =>
+                {
+                    float norm = t / duration;
+                    float env = 1f - norm;
+                    float lowPunch = Mathf.Sin(2f * Mathf.PI * Mathf.Lerp(140f, 50f, norm) * t) * env;
+                    float softNoise = (Random.value * 2f - 1f) * Mathf.Exp(-t * 30f) * 0.25f;
+                    return Mathf.Clamp(lowPunch * 0.6f + softNoise, -1f, 1f);
+                };
+                break;
+
+            case SoundEffect.GuardianStomp:
+                duration = 0.28f;
+                waveGenerator = t =>
+                {
+                    float norm = t / duration;
+                    float f = Mathf.Lerp(110f, 35f, norm);
+                    float env = Mathf.Exp(-t * 11f);
+                    float sub = Mathf.Sin(2f * Mathf.PI * f * t) * env;
+                    float thud = (Random.value * 2f - 1f) * Mathf.Exp(-t * 16f) * 0.5f;
+                    return Mathf.Clamp(sub + thud, -1f, 1f);
+                };
+                break;
+
+            case SoundEffect.GuardianPunch:
+                duration = 0.35f;
+                waveGenerator = t =>
+                {
+                    float norm = t / duration;
+                    float f = Mathf.Lerp(170f, 40f, Mathf.Pow(norm, 0.4f));
+                    float boom = Mathf.Sin(2f * Mathf.PI * f * t) * Mathf.Exp(-t * 8.5f);
+                    float impact = (Random.value * 2f - 1f) * Mathf.Exp(-t * 14f) * 0.75f;
+                    return Mathf.Clamp(boom + impact, -1f, 1f);
                 };
                 break;
 

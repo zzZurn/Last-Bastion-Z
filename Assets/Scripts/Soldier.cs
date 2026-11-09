@@ -543,7 +543,11 @@ public class Soldier : MonoBehaviour
             }
         }
 
-        if (isLightTank)
+        if (isGuardian)
+        {
+            AudioHelper.PlayGuardianStomp(0.85f);
+        }
+        else if (isLightTank)
         {
             AudioHelper.PlayRandomTankShoot(0.95f);
         }
@@ -636,6 +640,9 @@ public class Soldier : MonoBehaviour
 
     private void PerformGuardianShieldPush()
     {
+        // 1. Play punch sound INSTANTLY as the skill is executed (zero latency)
+        AudioHelper.PlayGuardianPunch(1.0f);
+
         if (target != null)
         {
             Vector3 toTarget = target.position - transform.position;
@@ -652,11 +659,12 @@ public class Soldier : MonoBehaviour
         forward.Normalize();
         Vector3 right = transform.right;
 
+        // Visual feedback: Guardian model dynamically lunges/punches shield forward
+        StartCoroutine(GuardianShieldBashLungeRoutine(forward));
+
         // 3x1 blocks in front (3 blocks wide = 6.0m, 1 block deep = 2.0m)
         Vector3 pushCenter = transform.position + forward * 1.1f;
         SpawnShieldPushVisual(pushCenter, forward);
-        AudioHelper.PlaySound(SoundEffect.BuildingPlace, 0.85f);
-        AudioHelper.PlaySound(SoundEffect.Hit, 0.8f);
 
         const float KNOCKBACK_DIST = 4.0f; // 2 blocks (2 * 2.0m = 4.0m)
         const float STUN_DURATION = 1.5f;  // 1.5 seconds stun
@@ -696,6 +704,26 @@ public class Soldier : MonoBehaviour
             rend.material.color = new Color(0.25f, 0.85f, 1.0f, 0.8f);
         }
         Destroy(waveBox, 0.25f);
+    }
+
+    private System.Collections.IEnumerator GuardianShieldBashLungeRoutine(Vector3 forward)
+    {
+        Vector3 basePos = transform.position;
+        float duration = 0.16f;
+        float timer = 0f;
+        while (timer < duration && !isDead)
+        {
+            timer += Time.deltaTime;
+            float t = timer / duration;
+            // Quick punch/shove arc: 0 -> peak 0.35m -> back to 0
+            float offset = Mathf.Sin(t * Mathf.PI) * 0.35f;
+            transform.position = basePos + forward * offset;
+            yield return null;
+        }
+        if (!isDead)
+        {
+            transform.position = basePos;
+        }
     }
 
     /// <summary>
