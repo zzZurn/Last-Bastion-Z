@@ -3,15 +3,20 @@ using UnityEngine;
 public class CameraController : MonoBehaviour
 {
     [Header("Pan Settings")]
-    public float panSpeed = 20f;
+    public float panSpeed = 28f;
     public float panBorderThickness = 10f;
-    public Vector2 panLimitX = new Vector2(-30f, 30f);
-    public Vector2 panLimitZ = new Vector2(-20f, 20f);
+    public Vector2 panLimitX = new Vector2(-70f, 50f);
+    public Vector2 panLimitZ = new Vector2(-68f, 48f);
 
     [Header("Zoom Settings")]
-    public float zoomSpeed = 5f;
-    public float minZoom = 5f;
-    public float maxZoom = 30f;
+    public float zoomSpeed = 6f;
+    public float minZoom = 6f;
+    public float maxZoom = 80f;
+
+    [Header("PvZ Camera Angle Settings")]
+    public float pitchAngle = 50f; // Plants vs. Zombies tilted pitch angle
+    public float cameraHeight = 30f; // Height above ground
+    public bool isPvZAngle = true;
 
     private Camera cam;
     private Vector3 lastMousePos;
@@ -25,15 +30,75 @@ public class CameraController : MonoBehaviour
     void Start()
     {
         cam = GetComponent<Camera>();
+        panLimitX = new Vector2(-70f, 50f);
+        maxZoom = 80f;
+        cameraHeight = 30f;
+        if (cam != null && cam.orthographic && cam.orthographicSize < 26f)
+        {
+            cam.orthographicSize = 28f;
+        }
+        SetCameraView(isPvZAngle);
     }
 
     void Update()
     {
+        // Hotkey: V to toggle between PvZ tilted angle (50°) and Top-Down view (90°)
+        if (Input.GetKeyDown(KeyCode.V))
+        {
+            ToggleCameraView();
+        }
+
+        // Hotkeys: PageUp / PageDown to fine-tune camera pitch angle
+        if (Input.GetKey(KeyCode.PageUp))
+        {
+            AdjustPitch(30f * Time.unscaledDeltaTime);
+        }
+        else if (Input.GetKey(KeyCode.PageDown))
+        {
+            AdjustPitch(-30f * Time.unscaledDeltaTime);
+        }
+
         HandleKeyboardPan();
         HandleMousePan();
         HandleMouseZoom();
         HandleTouchInput();
         ClampPosition();
+    }
+
+    public void ToggleCameraView()
+    {
+        isPvZAngle = !isPvZAngle;
+        SetCameraView(isPvZAngle);
+    }
+
+    public void SetCameraView(bool pvzMode)
+    {
+        isPvZAngle = pvzMode;
+        if (isPvZAngle)
+        {
+            pitchAngle = 50f;
+            panLimitZ = new Vector2(-68f, 48f);
+            transform.rotation = Quaternion.Euler(pitchAngle, 0f, 0f);
+            float zOffset = -cameraHeight / Mathf.Tan(pitchAngle * Mathf.Deg2Rad);
+            transform.position = new Vector3(transform.position.x, cameraHeight, zOffset);
+            Debug.Log("[Camera] Applied Plants vs. Zombies 2.5D tilted perspective (50°)");
+        }
+        else
+        {
+            pitchAngle = 90f;
+            panLimitZ = new Vector2(-48f, 48f);
+            transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            transform.position = new Vector3(transform.position.x, 38f, 0f);
+            Debug.Log("[Camera] Switched to Classic Top-Down view (90°)");
+        }
+    }
+
+    public void AdjustPitch(float delta)
+    {
+        pitchAngle = Mathf.Clamp(pitchAngle + delta, 30f, 90f);
+        transform.rotation = Quaternion.Euler(pitchAngle, 0f, 0f);
+        float zOffset = -cameraHeight / Mathf.Tan(pitchAngle * Mathf.Deg2Rad);
+        transform.position = new Vector3(transform.position.x, cameraHeight, zOffset);
     }
 
     void HandleKeyboardPan()
@@ -43,7 +108,7 @@ public class CameraController : MonoBehaviour
         if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) move.z -= 1;
         if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)) move.x -= 1;
         if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) move.x += 1;
-        transform.position += move.normalized * panSpeed * Time.deltaTime;
+        transform.position += move.normalized * panSpeed * Time.unscaledDeltaTime;
     }
 
     void HandleMousePan()
@@ -67,6 +132,7 @@ public class CameraController : MonoBehaviour
 
     void HandleMouseZoom()
     {
+        if (UIManager.Instance != null && UIManager.Instance.IsPointerOverUI()) return;
         float scroll = Input.GetAxis("Mouse ScrollWheel");
         if (Mathf.Abs(scroll) > 0.01f)
         {

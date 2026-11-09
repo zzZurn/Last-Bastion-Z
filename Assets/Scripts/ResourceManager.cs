@@ -18,6 +18,14 @@ public class ResourceManager : MonoBehaviour
         Instance = this;
     }
 
+    void OnDestroy()
+    {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
+
     public void ResetStartingResources()
     {
         Gold = 60;
@@ -42,16 +50,41 @@ public class ResourceManager : MonoBehaviour
         return true;
     }
 
+    public static int GetStageGoldReward(int day)
+    {
+        // Early game bonus: +20% and now +20% more on the first 4 days (day <= 4) -> 1.44x total bonus
+        float earlyBonus = (day <= 4) ? 1.44f : 1.0f;
+        int baseGold = Mathf.RoundToInt((8 + (day * 5)) * 1.2f * earlyBonus);
+        bool isElite = (GameManager.Instance != null && GameManager.Instance.isEliteBattleRoute);
+        int finalGold = isElite ? (baseGold * 2) : baseGold;
+        if (day == 15)
+        {
+            finalGold += 200; // Wave 15 Milestone Clear Bonus (+200 Gold)
+        }
+        return finalGold;
+    }
+
+    public static int GetStageMaterialReward(int day)
+    {
+        // Early game bonus: +20% and now +20% more on the first 4 days (day <= 4) -> 1.44x total bonus
+        float earlyBonus = (day <= 4) ? 1.44f : 1.0f;
+        int baseMat = Mathf.RoundToInt((6 + (day * 3)) * 1.2f * earlyBonus);
+        bool isElite = (GameManager.Instance != null && GameManager.Instance.isEliteBattleRoute);
+        return isElite ? (baseMat * 2) : baseMat;
+    }
+
     public void AddReward(int day)
     {
-        // Further reduced rewards — tight economy forces players to farm zombie kills too
-        int goldGain = 8 + (day * 5);  // Day 1: 11G, Day 2: 14G, Day 3: 17G, Day 5: 23G, Day 10: 38G
-        int matGain = 6 + (day * 3);   // Day 1: 8M,  Day 2: 10M, Day 3: 12M, Day 5: 16M, Day 10: 26M
+        int goldGain = GetStageGoldReward(day);
+        int matGain = GetStageMaterialReward(day);
 
         Gold += goldGain;
         Materials += matGain;
         OnResourceChanged?.Invoke();
-        Debug.Log($"[Resource] Stage {day} Reward: +{goldGain} Gold, +{matGain} Materials");
+        bool isElite = (GameManager.Instance != null && GameManager.Instance.isEliteBattleRoute);
+        string earlyTag = (day <= 4) ? " (+44% Early Day 1-4 Bonus)" : "";
+        string wave15Tag = (day == 15) ? " (+200G Wave 15 Milestone Bonus!)" : "";
+        Debug.Log($"[Resource] Stage {day} Reward{(isElite ? " [ELITE 2x BONUS]" : "")}{earlyTag}{wave15Tag}: +{goldGain} Gold, +{matGain} Materials");
     }
 
     public void AddSpecialReward()
