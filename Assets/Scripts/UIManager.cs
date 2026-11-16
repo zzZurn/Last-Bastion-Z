@@ -27,8 +27,10 @@ public class UIManager : MonoBehaviour
     private string devAuthStatusMsg = "";
 
     // Currently inspected building type in the UI
-    public enum BuildMenuTab { UnitBases, FrontlineFortifications }
+    public enum BuildMenuTab { UnitBases, FrontlineFortifications, AirSupport }
     public BuildMenuTab currentBuildTab = BuildMenuTab.UnitBases;
+    public enum AircraftType { FighterJet, B2Bomber }
+    public static AircraftType SelectedAircraft = AircraftType.FighterJet;
     public Building.BuildingType inspectedType = Building.BuildingType.SMGTent;
     private Vector2 descScrollPos = Vector2.zero;
 
@@ -639,10 +641,20 @@ public class UIManager : MonoBehaviour
             curY += 32f;
         }
 
-        // --- CATEGORY TAB SELECTOR: UNIT BASES VS FRONTLINE FORTIFICATIONS ---
+        // --- CATEGORY TAB SELECTOR: UNIT BASES VS FRONTLINE FORTIFICATIONS VS AIR SUPPORT ---
+        bool hasAirBase = (Building.GetActiveBuildingCount(Building.BuildingType.AirBase) > 0);
+        if (!hasAirBase && currentBuildTab == BuildMenuTab.AirSupport)
+        {
+            currentBuildTab = BuildMenuTab.UnitBases;
+        }
+
+        int numTabs = hasAirBase ? 3 : 2;
+        float tabGap = 6f;
+        float tabW = (menuW - 16f - (numTabs - 1) * tabGap) / numTabs;
+
         bool isUnitTab = (currentBuildTab == BuildMenuTab.UnitBases);
         GUI.backgroundColor = isUnitTab ? new Color(0.22f, 0.75f, 1.0f) : new Color(0.32f, 0.32f, 0.36f);
-        if (GUI.Button(new Rect(btnStartX, curY, colW, 28f), "⛺ Unit Bases (Units)", buttonStyle))
+        if (GUI.Button(new Rect(btnStartX, curY, tabW, 28f), hasAirBase ? "⛺ Unit Bases" : "⛺ Unit Bases (Units)", buttonStyle))
         {
             currentBuildTab = BuildMenuTab.UnitBases;
             if (Building.IsFrontlineFortification(inspectedType))
@@ -652,13 +664,26 @@ public class UIManager : MonoBehaviour
             }
         }
 
-        GUI.backgroundColor = !isUnitTab ? new Color(0.95f, 0.68f, 0.2f) : new Color(0.32f, 0.32f, 0.36f);
-        if (GUI.Button(new Rect(btnStartX + colW + 8f, curY, colW, 28f), "🛡️ Frontline Defenses", buttonStyle))
+        bool isFrontTab = (currentBuildTab == BuildMenuTab.FrontlineFortifications);
+        GUI.backgroundColor = isFrontTab ? new Color(0.95f, 0.68f, 0.2f) : new Color(0.32f, 0.32f, 0.36f);
+        if (GUI.Button(new Rect(btnStartX + tabW + tabGap, curY, tabW, 28f), hasAirBase ? "🛡️ Frontline" : "🛡️ Frontline Defenses", buttonStyle))
         {
             currentBuildTab = BuildMenuTab.FrontlineFortifications;
             inspectedType = Building.BuildingType.Barricade;
             descScrollPos = Vector2.zero;
             PlacementManager.Instance?.SelectBuildingToPlace(Building.BuildingType.Barricade);
+        }
+
+        if (hasAirBase)
+        {
+            bool isAirTab = (currentBuildTab == BuildMenuTab.AirSupport);
+            GUI.backgroundColor = isAirTab ? new Color(0.35f, 0.85f, 0.45f) : new Color(0.32f, 0.32f, 0.36f);
+            if (GUI.Button(new Rect(btnStartX + (tabW + tabGap) * 2f, curY, tabW, 28f), "✈️ Air Base", buttonStyle))
+            {
+                currentBuildTab = BuildMenuTab.AirSupport;
+                descScrollPos = Vector2.zero;
+                PlacementManager.Instance?.CancelPlacement();
+            }
         }
         GUI.backgroundColor = Color.white;
         curY += 33f;
@@ -681,14 +706,12 @@ public class UIManager : MonoBehaviour
             DrawBuildingRow(Building.BuildingType.SupplyDepot, "Supply Depot", supplyDepotGold, 0, btnStartX + colW + 8f, curY, badgeW, btnW, btnH);
             curY += btnH + 4f;
 
-            // Row 4: Missile Foundry / ICBM Launcher (Stage 16+, 3x4 Cells) + Zone Indicator
+            // Row 4: Missile Foundry / ICBM Launcher (Stage 16+) & Air Base (1500G, 500M)
             DrawBuildingRow(Building.BuildingType.MissileFoundry, "ICBM Foundry", 900, 350, btnStartX, curY, badgeW, btnW, btnH);
-            GUI.backgroundColor = new Color(0.18f, 0.35f, 0.25f, 0.9f);
-            GUI.Box(new Rect(btnStartX + colW + 8f, curY, colW, btnH), "📍 Main Base Only\n(Green Zone X: 0..14)", placementHintStyle);
-            GUI.backgroundColor = Color.white;
+            DrawBuildingRow(Building.BuildingType.AirBase, "Air Base", 1500, 500, btnStartX + colW + 8f, curY, badgeW, btnW, btnH);
             curY += btnH + 5f;
         }
-        else
+        else if (currentBuildTab == BuildMenuTab.FrontlineFortifications)
         {
             // Frontline Fortification Tab (Barricade & Frontline Sniper Tower)
             // Row 1: Barricade & Sniper Tower
@@ -696,31 +719,46 @@ public class UIManager : MonoBehaviour
             DrawBuildingRow(Building.BuildingType.FrontlineSniperTower, "Sniper Tower", 100, 40, btnStartX + colW + 8f, curY, badgeW, btnW, btnH);
             curY += (btnH + 4f) * 3 + 5f;
         }
+        else if (currentBuildTab == BuildMenuTab.AirSupport)
+        {
+            DrawAirSupportTabUI(btnStartX, curY, menuW - 16f, (btnH + 4f) * 4);
+            curY += (btnH + 4f) * 4 + 5f;
+        }
 
         // Row 5: Tactical Base Management (Relocate & Demolish)
-        bool isRelocating = (PlacementManager.Instance != null && PlacementManager.Instance.currentMode == PlacementManager.PlacementMode.Relocate);
-        bool isDemolishing = (PlacementManager.Instance != null && PlacementManager.Instance.currentMode == PlacementManager.PlacementMode.Demolish);
-
-        GUI.backgroundColor = isRelocating ? new Color(1f, 0.85f, 0.2f) : Color.white;
-        if (GUI.Button(new Rect(btnStartX, curY, colW, 28f), "🔧 Relocate", buttonStyle))
+        if (currentBuildTab != BuildMenuTab.AirSupport)
         {
-            if (isRelocating) PlacementManager.Instance.CancelPlacement();
-            else PlacementManager.Instance.SelectRelocateMode();
+            bool isRelocating = (PlacementManager.Instance != null && PlacementManager.Instance.currentMode == PlacementManager.PlacementMode.Relocate);
+            bool isDemolishing = (PlacementManager.Instance != null && PlacementManager.Instance.currentMode == PlacementManager.PlacementMode.Demolish);
+
+            GUI.backgroundColor = isRelocating ? new Color(1f, 0.85f, 0.2f) : Color.white;
+            if (GUI.Button(new Rect(btnStartX, curY, colW, 28f), "🔧 Relocate", buttonStyle))
+            {
+                if (isRelocating) PlacementManager.Instance.CancelPlacement();
+                else PlacementManager.Instance.SelectRelocateMode();
+            }
+
+            GUI.backgroundColor = isDemolishing ? new Color(1f, 0.35f, 0.35f) : Color.white;
+            if (GUI.Button(new Rect(btnStartX + colW + 8f, curY, colW, 28f), "💥 Demolish (70%)", buttonStyle))
+            {
+                if (isDemolishing) PlacementManager.Instance.CancelPlacement();
+                else PlacementManager.Instance.SelectDemolishMode();
+            }
+            GUI.backgroundColor = Color.white;
+            curY += 34f;
         }
 
-        GUI.backgroundColor = isDemolishing ? new Color(1f, 0.35f, 0.35f) : Color.white;
-        if (GUI.Button(new Rect(btnStartX + colW + 8f, curY, colW, 28f), "💥 Demolish (70%)", buttonStyle))
-        {
-            if (isDemolishing) PlacementManager.Instance.CancelPlacement();
-            else PlacementManager.Instance.SelectDemolishMode();
-        }
-        GUI.backgroundColor = Color.white;
-        curY += 34f;
-
-        // --- DETAILED TOWER DESCRIPTION & UPGRADE PANEL ---
-        float descBoxH = 226f;
+        // --- DETAILED TOWER / AIRCRAFT DESCRIPTION PANEL ---
+        float descBoxH = (currentBuildTab == BuildMenuTab.AirSupport) ? 240f : 226f;
         GUI.Box(new Rect(btnStartX, curY, menuW - 16f, descBoxH), GUIContent.none, boxStyle);
-        DrawTowerDescription(btnStartX + 6f, curY + 6f, menuW - 28f, descBoxH - 12f);
+        if (currentBuildTab == BuildMenuTab.AirSupport)
+        {
+            DrawAircraftDescription(btnStartX + 6f, curY + 6f, menuW - 28f, descBoxH - 12f);
+        }
+        else
+        {
+            DrawTowerDescription(btnStartX + 6f, curY + 6f, menuW - 28f, descBoxH - 12f);
+        }
         curY += descBoxH + 6f;
 
         // --- PLACEMENT STATUS HINT ---
@@ -886,6 +924,133 @@ public class UIManager : MonoBehaviour
 
         // Camera guide hint (Bottom Left/Center)
         GUI.Box(new Rect(15f, Screen.height - 48, 600, 36), "Controls: WASD: Pan | Scroll: Zoom | V: View | G: Grid | M: Mute | TAB: Menu | H: HUD", boxStyle);
+    }
+
+    void DrawAirSupportTabUI(float startX, float curY, float width, float totalH)
+    {
+        // Air Support Fleet Selection Cards
+        float cardH = 78f;
+        float cardGap = 8f;
+
+        // --- Card 1: Fighter Jet ---
+        bool isJetSelected = (SelectedAircraft == AircraftType.FighterJet);
+        GUI.backgroundColor = isJetSelected ? new Color(0.2f, 0.55f, 0.85f, 0.95f) : new Color(0.18f, 0.22f, 0.26f, 0.9f);
+        GUI.Box(new Rect(startX, curY, width, cardH), GUIContent.none, boxStyle);
+        GUI.backgroundColor = Color.white;
+
+        // Aircraft Icon / Select Button
+        GUI.backgroundColor = isJetSelected ? new Color(0.35f, 0.95f, 1.0f) : new Color(0.45f, 0.55f, 0.65f);
+        if (GUI.Button(new Rect(startX + 8f, curY + 8f, 54f, 62f), "✈️\n\nJET", buttonStyle))
+        {
+            SelectedAircraft = AircraftType.FighterJet;
+            descScrollPos = Vector2.zero;
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+        }
+
+        // Aircraft Details
+        GUI.Label(new Rect(startX + 70f, curY + 8f, width - 160f, 20f), "FIGHTER JET (A-10 CAS)", subHeaderStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 28f, width - 160f, 18f), "• Close Air Support: Gun Run & Rockets", descBodyStyle);
+        GUI.color = new Color(0.45f, 1.0f, 0.75f);
+        GUI.Label(new Rect(startX + 70f, curY + 46f, width - 160f, 18f), "🔩 Cost: Material Only (Amount TBD)", descBodyStyle);
+        GUI.color = Color.white;
+
+        // Action / State Button on right
+        GUI.backgroundColor = isJetSelected ? new Color(0.2f, 0.85f, 0.45f) : new Color(0.35f, 0.42f, 0.5f);
+        if (GUI.Button(new Rect(startX + width - 82f, curY + 18f, 74f, 42f), isJetSelected ? "ACTIVE\n✓ READY" : "SELECT\nAIRCRAFT", buttonStyle))
+        {
+            SelectedAircraft = AircraftType.FighterJet;
+            descScrollPos = Vector2.zero;
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+        }
+        GUI.backgroundColor = Color.white;
+
+        curY += cardH + cardGap;
+
+        // --- Card 2: B-2 Stealth Bomber ---
+        bool isB2Selected = (SelectedAircraft == AircraftType.B2Bomber);
+        GUI.backgroundColor = isB2Selected ? new Color(0.2f, 0.55f, 0.85f, 0.95f) : new Color(0.18f, 0.22f, 0.26f, 0.9f);
+        GUI.Box(new Rect(startX, curY, width, cardH), GUIContent.none, boxStyle);
+        GUI.backgroundColor = Color.white;
+
+        // Aircraft Icon / Select Button
+        GUI.backgroundColor = isB2Selected ? new Color(0.35f, 0.95f, 1.0f) : new Color(0.45f, 0.55f, 0.65f);
+        if (GUI.Button(new Rect(startX + 8f, curY + 8f, 54f, 62f), "💣\n\nB-2", buttonStyle))
+        {
+            SelectedAircraft = AircraftType.B2Bomber;
+            descScrollPos = Vector2.zero;
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+        }
+
+        // Aircraft Details
+        GUI.Label(new Rect(startX + 70f, curY + 8f, width - 160f, 20f), "B-2 STEALTH BOMBER", subHeaderStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 28f, width - 160f, 18f), "• Heavy Strategic Carpet Bombing", descBodyStyle);
+        GUI.color = new Color(0.45f, 1.0f, 0.75f);
+        GUI.Label(new Rect(startX + 70f, curY + 46f, width - 160f, 18f), "🔩 Cost: Material Only (Amount TBD)", descBodyStyle);
+        GUI.color = Color.white;
+
+        // Action / State Button on right
+        GUI.backgroundColor = isB2Selected ? new Color(0.2f, 0.85f, 0.45f) : new Color(0.35f, 0.42f, 0.5f);
+        if (GUI.Button(new Rect(startX + width - 82f, curY + 18f, 74f, 42f), isB2Selected ? "ACTIVE\n✓ READY" : "SELECT\nAIRCRAFT", buttonStyle))
+        {
+            SelectedAircraft = AircraftType.B2Bomber;
+            descScrollPos = Vector2.zero;
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+        }
+        GUI.backgroundColor = Color.white;
+    }
+
+    void DrawAircraftDescription(float x, float y, float viewW, float viewH)
+    {
+        string title;
+        string body;
+
+        if (SelectedAircraft == AircraftType.FighterJet)
+        {
+            title = "✈️ FIGHTER JET (Close Air Support)";
+            body =
+                "• Aircraft Model: Fighter_Plane.fbx\n" +
+                "• Tactical Role: High-Speed Precision Strafing Run\n" +
+                "• Weapon System: GAU 30mm Rotary Gun + HE Rocket Pods\n" +
+                "• Deployment Cost: Materials Only (No Gold required)\n" +
+                "• Attack Method: Linear strafe run across designated lane\n" +
+                "• Status: Standby on Air Base flight deck (Ready for deployment)\n" +
+                "★ Mission Profile: Shreds zombie rush waves and swarms with rapid-fire kinetic & explosive shrapnel.";
+        }
+        else
+        {
+            title = "💣 B-2 STEALTH BOMBER (Heavy Bomber)";
+            body =
+                "• Aircraft Model: B2.fbx\n" +
+                "• Tactical Role: Strategic Saturation Carpet Bombing\n" +
+                "• Weapon System: High-Yield Cluster Bomb Salvo\n" +
+                "• Deployment Cost: Materials Only (No Gold required)\n" +
+                "• Attack Method: Wide-area saturation bombing strike\n" +
+                "• Status: Armed in Air Base stealth hangar (Ready for deployment)\n" +
+                "★ Mission Profile: Delivers catastrophic area devastation, instantly annihilating giant clumps and elite abominations.";
+        }
+
+        float contentW = viewW - 16f;
+        float titleH = Mathf.Max(20f, descTitleStyle.CalcHeight(new GUIContent(title), contentW));
+        float bodyH = Mathf.Max(30f, descBodyStyle.CalcHeight(new GUIContent(body), contentW));
+
+        float totalContentH = titleH + 6f + bodyH + 20f;
+        Rect viewRect = new Rect(x, y, viewW, viewH);
+        Rect contentRect = new Rect(0, 0, contentW, totalContentH);
+
+        descScrollPos = GUI.BeginScrollView(viewRect, descScrollPos, contentRect, false, false);
+        float curY = 0f;
+
+        GUI.Label(new Rect(0f, curY, contentW, titleH), title, descTitleStyle);
+        curY += titleH + 6f;
+
+        GUI.Label(new Rect(0f, curY, contentW, bodyH), body, descBodyStyle);
+        curY += bodyH + 8f;
+
+        GUI.color = new Color(0.3f, 0.85f, 1.0f);
+        GUI.Label(new Rect(0f, curY, contentW, 20f), "ℹ️ Flight targeting coordinates & material costs will activate in battle.", descBodyStyle);
+        GUI.color = Color.white;
+
+        GUI.EndScrollView();
     }
 
     void DrawTowerDescription(float x, float y, float viewW, float viewH)
@@ -1180,6 +1345,23 @@ public class UIManager : MonoBehaviour
                     "• Damage: 75.0 dmg / shot (75.0 DPS)\n" +
                     "• Health: 160 HP | Stationary Steel Tower\n" +
                     "★ Tradeoff: 2x damage, but no pierce & stationary.";
+                break;
+
+            case Building.BuildingType.AirBase:
+                int airBaseActive = Building.GetActiveBuildingCount(Building.BuildingType.AirBase);
+                string airBaseCapNotice = (airBaseActive >= 1)
+                    ? "<color=#ff5555>• Placement Limit: 1/1 Placed (MAX REACHED)</color>\n"
+                    : "• Placement Limit: Max 1 Base on Map (0/1)\n";
+                title = "🛫 AIR BASE (Air Traffic Control)";
+                body =
+                    stockNotice +
+                    airBaseCapNotice +
+                    "• Cost: 1,500 Gold, 500 Materials | SUP: 0 | Size: 4x5\n" +
+                    "• 3D Model: ATC Tower (Air Command Facility)\n" +
+                    "• Feature: Unlocks [✈️ Air Base] Tab in Menu\n" +
+                    "• Available Aircraft: Fighter Jet & B-2 Bomber\n" +
+                    "• Mission Cost: Consumes Materials Only\n" +
+                    "★ Role: Strategic air strikes & carpet bombardment.";
                 break;
 
             default:
@@ -1799,6 +1981,7 @@ public class UIManager : MonoBehaviour
             case Building.BuildingType.SpecialForceDepot: return "Special Force Depot";
             case Building.BuildingType.LightTankFactory: return "Light Tank Factory";
             case Building.BuildingType.MissileFoundry: return "Missile Foundry";
+            case Building.BuildingType.AirBase: return "Air Base";
             case Building.BuildingType.SupplyDepot: return "Supply Depot";
             case Building.BuildingType.FrontlineSniperTower: return "Sniper Tower";
             default: return t.ToString();

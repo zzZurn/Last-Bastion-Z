@@ -55,6 +55,9 @@ public static class BuildingBlockVisualizer
             case Building.BuildingType.FrontlineSniperTower:
                 BuildFrontlineSniperTower(visualGroup);
                 break;
+            case Building.BuildingType.AirBase:
+                BuildAirBase(visualGroup);
+                break;
             default:
                 BuildSMGTent(visualGroup);
                 break;
@@ -555,6 +558,100 @@ public static class BuildingBlockVisualizer
         siloBunker.transform.localPosition = new Vector3(0f, 1.25f, 0f);
         Object.Destroy(siloBunker.GetComponent<Collider>());
         siloBunker.GetComponent<MeshRenderer>().material = MakeMat(new Color(0.28f, 0.32f, 0.36f), 0.6f, 0.5f);
+    }
+
+    private static void BuildAirBase(GameObject parent)
+    {
+        // Air Base Footprint: กว้าง 4 ยาว 5 ช่อง (5 cells along X = 10.0m, 4 cells along Z = 8.0m)
+        GameObject fbxPrefab = Resources.Load<GameObject>("Models/ATC Tower");
+        if (fbxPrefab != null)
+        {
+            GameObject modelInstance = Object.Instantiate(fbxPrefab, parent.transform);
+            modelInstance.name = "AirBase_FBX";
+            modelInstance.transform.localPosition = Vector3.zero;
+            modelInstance.transform.localRotation = fbxPrefab.transform.localRotation;
+            modelInstance.transform.localScale = fbxPrefab.transform.localScale;
+
+            // Remove embedded Blender camera, lights, and colliders
+            StripEmbeddedSceneComponents(modelInstance);
+
+            Renderer[] renderers = modelInstance.GetComponentsInChildren<Renderer>(true);
+            if (renderers.Length > 0 && TryCalculateExactWorldBounds(modelInstance, out Bounds combined))
+            {
+                // Upgrade materials if needed so FBX never renders magenta in URP
+                Shader validShader = GetShader();
+                foreach (var r in renderers)
+                {
+                    if (r.sharedMaterials != null)
+                    {
+                        Material[] mats = r.materials;
+                        for (int m = 0; m < mats.Length; m++)
+                        {
+                            if (mats[m] == null || mats[m].shader == null || mats[m].shader.name == "Hidden/InternalErrorShader" || (mats[m].shader.name == "Standard" && validShader.name.Contains("Universal")))
+                            {
+                                Color c = (mats[m] != null && mats[m].HasProperty("_Color")) ? mats[m].color : new Color(0.35f, 0.38f, 0.42f);
+                                Texture mainTex = (mats[m] != null && mats[m].HasProperty("_MainTex")) ? mats[m].mainTexture : null;
+                                Material upgraded = MakeMat(c, 0.45f, 0.45f);
+                                if (mainTex != null)
+                                {
+                                    upgraded.mainTexture = mainTex;
+                                    if (upgraded.HasProperty("_BaseMap")) upgraded.SetTexture("_BaseMap", mainTex);
+                                }
+                                mats[m] = upgraded;
+                            }
+                        }
+                        r.materials = mats;
+                    }
+                }
+
+                // Orient longer horizontal side along X (5 blocks = 10.0m) and shorter side along Z (4 blocks = 8.0m)
+                if (combined.size.z > combined.size.x)
+                {
+                    modelInstance.transform.Rotate(0f, 90f, 0f, Space.World);
+                }
+                TryCalculateExactWorldBounds(modelInstance, out combined);
+
+                // Align bottom-center of the model to parent's origin before stretching parent
+                Vector3 rootWorldPos = parent.transform.position;
+                modelInstance.transform.position += new Vector3(
+                    rootWorldPos.x - combined.center.x,
+                    rootWorldPos.y - combined.min.y,
+                    rootWorldPos.z - combined.center.z
+                );
+
+                // Fit neatly into 5x4 blocks (9.6m x 7.6m) with proportional height
+                float sizeX = Mathf.Max(0.01f, combined.size.x);
+                float sizeY = Mathf.Max(0.01f, combined.size.y);
+                float sizeZ = Mathf.Max(0.01f, combined.size.z);
+
+                float targetX = 9.6f; // 5 cells (10.0m) with clean border margin
+                float targetZ = 7.6f; // 4 cells (8.0m) with clean border margin
+                float avgHorizScale = ((targetX / sizeX) + (targetZ / sizeZ)) * 0.5f;
+                float targetY = Mathf.Clamp(sizeY * avgHorizScale, 3.5f, 6.0f);
+
+                parent.transform.localScale = new Vector3(
+                    targetX / sizeX,
+                    targetY / sizeY,
+                    targetZ / sizeZ
+                );
+                return;
+            }
+        }
+
+        // Procedural fallback if FBX is unavailable (5x4 cells = 10m x 8m)
+        var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        pad.transform.SetParent(parent.transform, false);
+        pad.transform.localScale = new Vector3(9.6f, 0.25f, 7.6f);
+        pad.transform.localPosition = new Vector3(0f, 0.125f, 0f);
+        Object.Destroy(pad.GetComponent<Collider>());
+        pad.GetComponent<MeshRenderer>().material = MakeMat(new Color(0.25f, 0.28f, 0.32f), 0.5f, 0.4f);
+
+        var tower = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        tower.transform.SetParent(parent.transform, false);
+        tower.transform.localScale = new Vector3(3.2f, 4.5f, 3.2f);
+        tower.transform.localPosition = new Vector3(0f, 2.35f, 0f);
+        Object.Destroy(tower.GetComponent<Collider>());
+        tower.GetComponent<MeshRenderer>().material = MakeMat(new Color(0.38f, 0.42f, 0.48f), 0.6f, 0.5f);
     }
 
     private static void BuildSupplyDepot(GameObject parent)

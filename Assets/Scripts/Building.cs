@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 public class Building : MonoBehaviour
 {
-    public enum BuildingType { SMGTent, SniperTower, Barricade, HealStation, SpecialForceDepot, LightTankFactory, MissileFoundry, SupplyDepot, FrontlineSniperTower }
+    public enum BuildingType { SMGTent, SniperTower, Barricade, HealStation, SpecialForceDepot, LightTankFactory, MissileFoundry, SupplyDepot, FrontlineSniperTower, AirBase }
 
     public static readonly List<Building> ActiveBuildings = new List<Building>();
     private static readonly Dictionary<BuildingType, int> upgradeLevels = new Dictionary<BuildingType, int>();
@@ -93,6 +93,11 @@ public class Building : MonoBehaviour
                 maxSpawnCount = 0;
                 turretMountTransform = transform.Find("BuildingVisual/TurretMount");
                 break;
+            case BuildingType.AirBase:
+                maxHealth = 600f; // Tactical Air Command & Runway Tower
+                spawnInterval = 9999f;
+                maxSpawnCount = 0;
+                break;
             default:
                 maxHealth = 80f;
                 spawnInterval = 14.0f;
@@ -140,7 +145,7 @@ public class Building : MonoBehaviour
             int supCost = GetUnitSupplyCost(type);
             if (spawnTimer <= 0.05f && !Soldier.CanSpawnSupply(supCost))
             {
-                float yOff = (type == BuildingType.LightTankFactory || type == BuildingType.MissileFoundry) ? 3.4f : 2.0f;
+                float yOff = (type == BuildingType.LightTankFactory || type == BuildingType.MissileFoundry || type == BuildingType.AirBase) ? 3.6f : 2.0f;
                 Vector3 scr = Camera.main.WorldToScreenPoint(transform.position + Vector3.up * yOff);
                 if (scr.z > 0)
                 {
@@ -163,7 +168,7 @@ public class Building : MonoBehaviour
 
         if (currentHealth >= maxHealth || currentHealth <= 0f) return;
 
-        float yOffset = (type == BuildingType.FrontlineSniperTower) ? 3.8f : ((type == BuildingType.LightTankFactory || type == BuildingType.MissileFoundry) ? 3.2f : 1.8f);
+        float yOffset = (type == BuildingType.FrontlineSniperTower) ? 3.8f : ((type == BuildingType.LightTankFactory || type == BuildingType.MissileFoundry || type == BuildingType.AirBase) ? 3.4f : 1.8f);
         Vector3 worldPos = transform.position + Vector3.up * yOffset;
         Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPos);
         if (screenPos.z <= 0) return;
@@ -202,7 +207,7 @@ public class Building : MonoBehaviour
             return;
         }
 
-        if (type == BuildingType.Barricade || type == BuildingType.SupplyDepot) return; // Doesn't spawn units
+        if (type == BuildingType.Barricade || type == BuildingType.SupplyDepot || type == BuildingType.AirBase) return; // Doesn't spawn units
 
         // Always enforce unit spawn limits (15 Snipers max, 6 Guardians, 4 Tanks, 1 ICBM Launcher max!)
         if (type == BuildingType.SniperTower && CountActiveSnipers() >= maxSpawnCount) return;
@@ -364,12 +369,13 @@ public class Building : MonoBehaviour
 
     public void ForceSpawnUnitImmediate()
     {
-        if (IsFrontlineFortification(type) || type == BuildingType.SupplyDepot) return;
+        if (IsFrontlineFortification(type) || type == BuildingType.SupplyDepot || type == BuildingType.AirBase) return;
         SpawnSoldier(true);
     }
 
     void SpawnSoldier(bool bypassCap = false)
     {
+        if (type == BuildingType.Barricade || type == BuildingType.SupplyDepot || type == BuildingType.AirBase || type == BuildingType.FrontlineSniperTower) return;
         // Strictly limit ICBM Launcher to 1 active unit maximum
         if (type == BuildingType.MissileFoundry && (spawnedCount >= 1 || CountActiveICBMLaunchers() >= 1))
         {
@@ -568,6 +574,7 @@ public class Building : MonoBehaviour
         if (t == BuildingType.SniperTower) return 6; // Nerfed: Limit building placement to 6 bases max
         if (t == BuildingType.LightTankFactory) return 4;
         if (t == BuildingType.MissileFoundry) return 1;
+        if (t == BuildingType.AirBase) return 1;
         return 0;
     }
 
@@ -615,6 +622,7 @@ public class Building : MonoBehaviour
             case BuildingType.SpecialForceDepot: return 50;
             case BuildingType.LightTankFactory: return 600;
             case BuildingType.MissileFoundry: return 900;
+            case BuildingType.AirBase: return 1500;
             case BuildingType.SupplyDepot: return 100 + GetTotalSupplyDepotsOwned() * 50;
             case BuildingType.FrontlineSniperTower: return 100;
             default: return 30;
@@ -652,6 +660,7 @@ public class Building : MonoBehaviour
             case BuildingType.SpecialForceDepot: return 30;
             case BuildingType.LightTankFactory: return 200;
             case BuildingType.MissileFoundry: return 350;
+            case BuildingType.AirBase: return 500;
             case BuildingType.SupplyDepot: return 0; // Uses 0 Materials!
             case BuildingType.FrontlineSniperTower: return 40;
             default: return 10;
@@ -697,6 +706,7 @@ public class Building : MonoBehaviour
         if (t == BuildingType.SniperTower) return new Vector2Int(1, 2);
         if (t == BuildingType.LightTankFactory) return new Vector2Int(2, 2);
         if (t == BuildingType.MissileFoundry) return new Vector2Int(4, 3);
+        if (t == BuildingType.AirBase) return new Vector2Int(5, 4);
         return new Vector2Int(1, 1);
     }
 

@@ -52,7 +52,8 @@ public class PlacementManager : MonoBehaviour
         { Building.BuildingType.LightTankFactory, 0 },
         { Building.BuildingType.MissileFoundry, 0 },
         { Building.BuildingType.SupplyDepot, 0 },
-        { Building.BuildingType.FrontlineSniperTower, 0 }
+        { Building.BuildingType.FrontlineSniperTower, 0 },
+        { Building.BuildingType.AirBase, 0 }
     };
 
     private GameObject previewObject;
@@ -116,7 +117,8 @@ public class PlacementManager : MonoBehaviour
             { Building.BuildingType.LightTankFactory, 0 },
             { Building.BuildingType.MissileFoundry, 0 },
             { Building.BuildingType.SupplyDepot, 0 },
-            { Building.BuildingType.FrontlineSniperTower, 0 }
+            { Building.BuildingType.FrontlineSniperTower, 0 },
+            { Building.BuildingType.AirBase, 0 }
         };
         lastSavedLayout.Clear();
         Debug.Log("[PlacementManager] Stored building stock and layout blueprint cleared.");
@@ -328,6 +330,10 @@ public class PlacementManager : MonoBehaviour
                 break;
             case Building.BuildingType.FrontlineSniperTower:
                 previewObject.transform.localScale = new Vector3(1.7f, 3.4f, 1.7f);
+                break;
+            case Building.BuildingType.AirBase:
+                // กว้าง 4 ยาว 5 ช่อง (5 cells along X = 10m, 4 cells along Z = 8m)
+                previewObject.transform.localScale = new Vector3(9.6f, 2.5f, 7.6f);
                 break;
             default:
                 Vector2Int fp = Building.GetFootprintSize(selectedType);
