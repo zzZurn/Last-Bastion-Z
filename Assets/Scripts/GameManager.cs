@@ -85,6 +85,10 @@ public class GameManager : MonoBehaviour
         {
             gameObject.AddComponent<TitleLogo3D>();
         }
+        if (FindAnyObjectByType<AirSupportManager>() == null)
+        {
+            gameObject.AddComponent<AirSupportManager>();
+        }
 
         ApplyPostApocalypseTheme();
         SetGameSpeed(1.0f);
@@ -303,6 +307,7 @@ public class GameManager : MonoBehaviour
         FortressCore.Instance?.ResetHealth();
         PlacementManager.Instance?.ClearStoredCounts();
         WaveManager.Instance?.ResetWaveState();
+        AirSupportManager.Instance?.ResetCampaign();
         ClearBattlefield(false);
         SetState(GameState.Planning);
         Debug.Log("[GameManager] Campaign restarted successfully to Day 1 Planning.");

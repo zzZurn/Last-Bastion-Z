@@ -255,9 +255,14 @@ public class Soldier : MonoBehaviour
             }
         }
         // 4. Otherwise, check if player Left-Clicks THIS ICBM Launcher to enter Targeting Mode
-        else if (ActiveTargetingICBM == null && fireTimer <= 0f)
+        else if (ActiveTargetingICBM == null)
         {
-            if (Input.GetMouseButtonDown(0))
+            if (icbmReticleObj != null && icbmReticleObj.activeSelf)
+            {
+                icbmReticleObj.SetActive(false);
+            }
+
+            if (fireTimer <= 0f && Input.GetMouseButtonDown(0))
             {
                 if (UIManager.Instance != null && UIManager.Instance.IsPointerOverUI()) return;
 
@@ -283,6 +288,10 @@ public class Soldier : MonoBehaviour
 
                 if (clickedThisUnit)
                 {
+                    if (AirSupportManager.Instance != null && (AirSupportManager.Instance.IsTargetingFighter || AirSupportManager.Instance.IsTargetingB2))
+                    {
+                        AirSupportManager.Instance.CancelAllTargeting();
+                    }
                     if (PlacementManager.Instance != null && PlacementManager.Instance.currentMode != PlacementManager.PlacementMode.None)
                     {
                         PlacementManager.Instance.CancelPlacement();

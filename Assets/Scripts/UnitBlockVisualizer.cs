@@ -204,7 +204,7 @@ public static class UnitBlockVisualizer
         optic.GetComponent<MeshRenderer>().material = MakeMat(new Color(1.0f, 0.45f, 0.1f));
     }
 
-    private static bool TryCalculateExactWorldBounds(GameObject obj, out Bounds worldBounds)
+    public static bool TryCalculateExactWorldBounds(GameObject obj, out Bounds worldBounds)
     {
         worldBounds = new Bounds();
         bool hasBounds = false;
@@ -263,26 +263,52 @@ public static class UnitBlockVisualizer
         return hasBounds;
     }
 
-    private static void StripEmbeddedSceneComponents(GameObject modelInstance)
+    private static void DestroyDependentComponents(GameObject go, System.Type requiredType)
+    {
+        if (go == null) return;
+        foreach (var comp in go.GetComponents<Component>())
+        {
+            if (comp == null || comp is Transform) continue;
+            var attrs = comp.GetType().GetCustomAttributes(typeof(RequireComponent), true);
+            foreach (RequireComponent req in attrs)
+            {
+                if ((req.m_Type0 != null && req.m_Type0.IsAssignableFrom(requiredType)) ||
+                    (req.m_Type1 != null && req.m_Type1.IsAssignableFrom(requiredType)) ||
+                    (req.m_Type2 != null && req.m_Type2.IsAssignableFrom(requiredType)))
+                {
+                    Object.DestroyImmediate(comp);
+                    break;
+                }
+            }
+        }
+    }
+
+    public static void StripEmbeddedSceneComponents(GameObject modelInstance)
     {
         // Destroy any embedded Blender Cameras/AudioListeners/Lights/Colliders inside the FBX so they never hijack the screen!
         foreach (var cam in modelInstance.GetComponentsInChildren<Camera>(true))
         {
+            if (cam == null) continue;
             cam.enabled = false;
+            DestroyDependentComponents(cam.gameObject, typeof(Camera));
             Object.DestroyImmediate(cam);
         }
         foreach (var listener in modelInstance.GetComponentsInChildren<AudioListener>(true))
         {
+            if (listener == null) continue;
             listener.enabled = false;
             Object.DestroyImmediate(listener);
         }
         foreach (var light in modelInstance.GetComponentsInChildren<Light>(true))
         {
+            if (light == null) continue;
             light.enabled = false;
+            DestroyDependentComponents(light.gameObject, typeof(Light));
             Object.DestroyImmediate(light);
         }
         foreach (var col in modelInstance.GetComponentsInChildren<Collider>(true))
         {
+            if (col == null) continue;
             col.enabled = false;
             Object.DestroyImmediate(col);
         }

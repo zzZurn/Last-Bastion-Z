@@ -13,6 +13,7 @@ public class Building : MonoBehaviour
     public BuildingType type = BuildingType.SMGTent;
     public int goldCost = 30;
     public int materialCost = 10;
+    public int specialMaterialCost = 0;
     public float maxHealth = 100f;
     public float currentHealth = 100f;
     public float spawnInterval = 14.0f; // Nerfed slower human spawn rate
@@ -664,6 +665,15 @@ public class Building : MonoBehaviour
             case BuildingType.SupplyDepot: return 0; // Uses 0 Materials!
             case BuildingType.FrontlineSniperTower: return 40;
             default: return 10;
+        }
+    }
+
+    public static int GetSpecialMaterialCost(BuildingType t)
+    {
+        switch (t)
+        {
+            case BuildingType.MissileFoundry: return 4;
+            default: return 0;
         }
     }
 

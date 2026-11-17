@@ -168,8 +168,9 @@ public class PlacementManager : MonoBehaviour
                 int stored = GetStoredCount(selectedType);
                 int goldCost = stored > 0 ? 0 : Building.GetGoldCost(selectedType);
                 int matCost = stored > 0 ? 0 : Building.GetMaterialCost(selectedType);
+                int specCost = stored > 0 ? 0 : Building.GetSpecialMaterialCost(selectedType);
 
-                if (stored > 0 || (ResourceManager.Instance.Gold >= goldCost && ResourceManager.Instance.Materials >= matCost))
+                if (stored > 0 || (ResourceManager.Instance.Gold >= goldCost && ResourceManager.Instance.Materials >= matCost && ResourceManager.Instance.SpecialMaterials >= specCost))
                 {
                     TryPlaceBuilding(slot.gridX, slot.gridY);
                     placedCount++;
@@ -346,8 +347,9 @@ public class PlacementManager : MonoBehaviour
     {
         if (GameManager.Instance == null) return;
 
-        // Pause building placement preview/clicks while manually aiming an ICBM Launcher
-        if (Soldier.ActiveTargetingICBM != null)
+        // Pause building placement preview/clicks while manually aiming ICBM or Air Support
+        if (Soldier.ActiveTargetingICBM != null ||
+            (AirSupportManager.Instance != null && (AirSupportManager.Instance.IsTargetingFighter || AirSupportManager.Instance.IsTargetingB2)))
         {
             if (isDraggingPlacement) ClearDragQueue();
             if (previewObject != null && previewObject.activeSelf) previewObject.SetActive(false);
@@ -604,8 +606,9 @@ public class PlacementManager : MonoBehaviour
             int paidCount = Mathf.Max(0, nextTotalCount - stored);
             int totalGoldNeeded = Building.GetTotalGoldCostForCount(type, paidCount);
             int totalMatNeeded = paidCount * Building.GetMaterialCost(type);
+            int totalSpecNeeded = paidCount * Building.GetSpecialMaterialCost(type);
 
-            if (ResourceManager.Instance.Gold < totalGoldNeeded || ResourceManager.Instance.Materials < totalMatNeeded)
+            if (ResourceManager.Instance.Gold < totalGoldNeeded || ResourceManager.Instance.Materials < totalMatNeeded || ResourceManager.Instance.SpecialMaterials < totalSpecNeeded)
             {
                 return false;
             }
@@ -734,11 +737,13 @@ public class PlacementManager : MonoBehaviour
                 : Building.GetGoldCost(b.type));
         int refundGold = Mathf.RoundToInt(baseGoldCost * 0.7f);
         int refundMats = Mathf.RoundToInt(Building.GetMaterialCost(b.type) * 0.7f);
+        int refundSpec = Mathf.RoundToInt(Building.GetSpecialMaterialCost(b.type) * 0.7f);
 
         if (ResourceManager.Instance != null)
         {
             ResourceManager.Instance.SpendGold(-refundGold);
             ResourceManager.Instance.SpendMaterials(-refundMats);
+            if (refundSpec > 0) ResourceManager.Instance.SpendSpecialMaterials(-refundSpec);
         }
 
         Building.ActiveBuildings.Remove(b);
@@ -746,7 +751,8 @@ public class PlacementManager : MonoBehaviour
         Destroy(b.gameObject);
 
         AudioHelper.PlaySound(SoundEffect.BuildingDemolish);
-        Debug.Log($"[Placement] Demolished {b.type} at ({x}, {y})! Refunded {refundGold} Gold and {refundMats} Materials.");
+        string specLog = (refundSpec > 0) ? $" and {refundSpec} Special Materials" : "";
+        Debug.Log($"[Placement] Demolished {b.type} at ({x}, {y})! Refunded {refundGold} Gold, {refundMats} Materials{specLog}.");
     }
 
     public void TryPlaceBuilding(int x, int y)
@@ -794,10 +800,11 @@ public class PlacementManager : MonoBehaviour
 
         int goldCost = (isDevFree || useStock) ? 0 : Building.GetGoldCost(selectedType);
         int matCost = (isDevFree || useStock) ? 0 : Building.GetMaterialCost(selectedType);
+        int specCost = (isDevFree || useStock) ? 0 : Building.GetSpecialMaterialCost(selectedType);
 
         if (!isDevFree && !useStock)
         {
-            if (ResourceManager.Instance.Gold < goldCost || ResourceManager.Instance.Materials < matCost)
+            if (ResourceManager.Instance.Gold < goldCost || ResourceManager.Instance.Materials < matCost || ResourceManager.Instance.SpecialMaterials < specCost)
             {
                 Debug.LogWarning("[Placement] Not enough resources to purchase new building!");
                 return;
@@ -805,6 +812,7 @@ public class PlacementManager : MonoBehaviour
 
             ResourceManager.Instance.SpendGold(goldCost);
             ResourceManager.Instance.SpendMaterials(matCost);
+            if (specCost > 0) ResourceManager.Instance.SpendSpecialMaterials(specCost);
         }
         else if (useStock)
         {
@@ -825,6 +833,7 @@ public class PlacementManager : MonoBehaviour
         building.gridY = y;
         building.goldCost = goldCost;
         building.materialCost = matCost;
+        building.specialMaterialCost = specCost;
 
         GridManager.Instance.PlaceBuilding(x, y, building);
         AudioHelper.PlaySound(SoundEffect.BuildingPlace);

@@ -50,6 +50,14 @@ public class ResourceManager : MonoBehaviour
         return true;
     }
 
+    public bool SpendSpecialMaterials(int amount)
+    {
+        if (SpecialMaterials < amount) return false;
+        SpecialMaterials -= amount;
+        OnResourceChanged?.Invoke();
+        return true;
+    }
+
     public static int GetStageGoldReward(int day)
     {
         // Early game bonus: +20% and now +20% more on the first 4 days (day <= 4) -> 1.44x total bonus

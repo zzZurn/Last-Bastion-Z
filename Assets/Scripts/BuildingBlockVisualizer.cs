@@ -439,26 +439,52 @@ public static class BuildingBlockVisualizer
         return hasBounds;
     }
 
+    private static void DestroyDependentComponents(GameObject go, System.Type requiredType)
+    {
+        if (go == null) return;
+        foreach (var comp in go.GetComponents<Component>())
+        {
+            if (comp == null || comp is Transform) continue;
+            var attrs = comp.GetType().GetCustomAttributes(typeof(RequireComponent), true);
+            foreach (RequireComponent req in attrs)
+            {
+                if ((req.m_Type0 != null && req.m_Type0.IsAssignableFrom(requiredType)) ||
+                    (req.m_Type1 != null && req.m_Type1.IsAssignableFrom(requiredType)) ||
+                    (req.m_Type2 != null && req.m_Type2.IsAssignableFrom(requiredType)))
+                {
+                    Object.DestroyImmediate(comp);
+                    break;
+                }
+            }
+        }
+    }
+
     private static void StripEmbeddedSceneComponents(GameObject modelInstance)
     {
         // Destroy any embedded Blender Cameras/AudioListeners/Lights/Colliders inside the FBX so they never hijack the screen!
         foreach (var cam in modelInstance.GetComponentsInChildren<Camera>(true))
         {
+            if (cam == null) continue;
             cam.enabled = false;
+            DestroyDependentComponents(cam.gameObject, typeof(Camera));
             Object.DestroyImmediate(cam);
         }
         foreach (var listener in modelInstance.GetComponentsInChildren<AudioListener>(true))
         {
+            if (listener == null) continue;
             listener.enabled = false;
             Object.DestroyImmediate(listener);
         }
         foreach (var light in modelInstance.GetComponentsInChildren<Light>(true))
         {
+            if (light == null) continue;
             light.enabled = false;
+            DestroyDependentComponents(light.gameObject, typeof(Light));
             Object.DestroyImmediate(light);
         }
         foreach (var col in modelInstance.GetComponentsInChildren<Collider>(true))
         {
+            if (col == null) continue;
             col.enabled = false;
             Object.DestroyImmediate(col);
         }
@@ -560,6 +586,46 @@ public static class BuildingBlockVisualizer
         siloBunker.GetComponent<MeshRenderer>().material = MakeMat(new Color(0.28f, 0.32f, 0.36f), 0.6f, 0.5f);
     }
 
+    private struct AirBaseMaterialSpec
+    {
+        public string key;
+        public string textureResourcePath;
+        public float metallic;
+        public float smoothness;
+        public bool alphaCutout;
+        public bool doubleSided;
+    }
+
+    private static readonly AirBaseMaterialSpec[] AirBaseMaterialSpecs = new AirBaseMaterialSpec[]
+    {
+        new AirBaseMaterialSpec { key = "airtower01mat",   textureResourcePath = "Textures/AirBase/AirTower01_BaseColor", metallic = 0.20f, smoothness = 0.35f, alphaCutout = false, doubleSided = true },
+        new AirBaseMaterialSpec { key = "runway1.concrete",textureResourcePath = "Textures/AirBase/Runway_Concrete",     metallic = 0.05f, smoothness = 0.20f, alphaCutout = false, doubleSided = false },
+        new AirBaseMaterialSpec { key = "tunway1.asphalt", textureResourcePath = "Textures/AirBase/Runway_Asphalt",      metallic = 0.05f, smoothness = 0.20f, alphaCutout = false, doubleSided = false },
+        new AirBaseMaterialSpec { key = "hangar1.main",    textureResourcePath = "Textures/AirBase/Hangar_Main",         metallic = 0.25f, smoothness = 0.32f, alphaCutout = false, doubleSided = false },
+        new AirBaseMaterialSpec { key = "hangar1.frame",   textureResourcePath = "Textures/AirBase/Hangar_Frame",        metallic = 0.45f, smoothness = 0.42f, alphaCutout = false, doubleSided = false },
+        new AirBaseMaterialSpec { key = "hangar1.ridges",  textureResourcePath = "Textures/AirBase/Hangar_Ridges",       metallic = 0.40f, smoothness = 0.40f, alphaCutout = false, doubleSided = false },
+        new AirBaseMaterialSpec { key = "hangar1.door",    textureResourcePath = "Textures/AirBase/Hangar_Door",         metallic = 0.35f, smoothness = 0.38f, alphaCutout = false, doubleSided = false },
+        new AirBaseMaterialSpec { key = "hangar1.thingy",  textureResourcePath = "Textures/AirBase/Hangar_Thingy",       metallic = 0.30f, smoothness = 0.40f, alphaCutout = false, doubleSided = false },
+        new AirBaseMaterialSpec { key = "fence2.chain",    textureResourcePath = "Textures/AirBase/Fence_Chain",         metallic = 0.45f, smoothness = 0.40f, alphaCutout = true,  doubleSided = true },
+        new AirBaseMaterialSpec { key = "fence2.pole",     textureResourcePath = "Textures/AirBase/Fence_Pole",          metallic = 0.55f, smoothness = 0.45f, alphaCutout = false, doubleSided = false }
+    };
+
+    private static bool TryGetAirBaseMaterialSpec(string matName, string objName, out AirBaseMaterialSpec matched)
+    {
+        string matLower = string.IsNullOrEmpty(matName) ? string.Empty : matName.ToLowerInvariant();
+        string objLower = string.IsNullOrEmpty(objName) ? string.Empty : objName.ToLowerInvariant();
+        foreach (var spec in AirBaseMaterialSpecs)
+        {
+            if (matLower.Contains(spec.key) || objLower.Contains(spec.key))
+            {
+                matched = spec;
+                return true;
+            }
+        }
+        matched = default;
+        return false;
+    }
+
     private static void BuildAirBase(GameObject parent)
     {
         // Air Base Footprint: กว้าง 4 ยาว 5 ช่อง (5 cells along X = 10.0m, 4 cells along Z = 8.0m)
@@ -578,7 +644,7 @@ public static class BuildingBlockVisualizer
             Renderer[] renderers = modelInstance.GetComponentsInChildren<Renderer>(true);
             if (renderers.Length > 0 && TryCalculateExactWorldBounds(modelInstance, out Bounds combined))
             {
-                // Upgrade materials if needed so FBX never renders magenta in URP
+                // Upgrade materials if needed and bind each AirBase part's own texture by material/mesh name
                 Shader validShader = GetShader();
                 foreach (var r in renderers)
                 {
@@ -587,18 +653,58 @@ public static class BuildingBlockVisualizer
                         Material[] mats = r.materials;
                         for (int m = 0; m < mats.Length; m++)
                         {
-                            if (mats[m] == null || mats[m].shader == null || mats[m].shader.name == "Hidden/InternalErrorShader" || (mats[m].shader.name == "Standard" && validShader.name.Contains("Universal")))
+                            Material mat = mats[m];
+                            string origName = (mat != null) ? mat.name : string.Empty;
+                            bool needsUpgrade = (mat == null || mat.shader == null ||
+                                mat.shader.name == "Hidden/InternalErrorShader" ||
+                                (mat.shader.name == "Standard" && validShader != null && validShader.name.Contains("Universal")));
+
+                            if (needsUpgrade)
                             {
-                                Color c = (mats[m] != null && mats[m].HasProperty("_Color")) ? mats[m].color : new Color(0.35f, 0.38f, 0.42f);
-                                Texture mainTex = (mats[m] != null && mats[m].HasProperty("_MainTex")) ? mats[m].mainTexture : null;
-                                Material upgraded = MakeMat(c, 0.45f, 0.45f);
+                                Color c = (mat != null && mat.HasProperty("_Color")) ? mat.color : Color.white;
+                                Texture mainTex = (mat != null && mat.HasProperty("_MainTex")) ? mat.mainTexture : null;
+                                Material upgraded = MakeMat(c, 0.20f, 0.35f);
+                                upgraded.name = origName;
                                 if (mainTex != null)
                                 {
                                     upgraded.mainTexture = mainTex;
                                     if (upgraded.HasProperty("_BaseMap")) upgraded.SetTexture("_BaseMap", mainTex);
                                 }
-                                mats[m] = upgraded;
+                                mat = upgraded;
                             }
+
+                            if (mat != null && TryGetAirBaseMaterialSpec(origName, r.gameObject.name, out AirBaseMaterialSpec spec))
+                            {
+                                Texture2D partTex = Resources.Load<Texture2D>(spec.textureResourcePath);
+                                if (partTex != null)
+                                {
+                                    if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", partTex);
+                                    if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", partTex);
+                                }
+
+                                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", Color.white);
+                                mat.color = Color.white;
+                                if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", spec.metallic);
+                                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", spec.smoothness);
+
+                                if (spec.doubleSided && mat.HasProperty("_Cull"))
+                                {
+                                    mat.SetFloat("_Cull", 0f);
+                                }
+
+                                if (spec.alphaCutout)
+                                {
+                                    if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 0f);
+                                    if (mat.HasProperty("_AlphaClip")) mat.SetFloat("_AlphaClip", 1f);
+                                    if (mat.HasProperty("_Cutoff")) mat.SetFloat("_Cutoff", 0.35f);
+                                    mat.SetOverrideTag("RenderType", "TransparentCutout");
+                                    mat.EnableKeyword("_ALPHATEST_ON");
+                                    mat.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                                    mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
+                                }
+                            }
+
+                            mats[m] = mat;
                         }
                         r.materials = mats;
                     }

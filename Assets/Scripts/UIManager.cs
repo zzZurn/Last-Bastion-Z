@@ -138,6 +138,19 @@ public class UIManager : MonoBehaviour
             else if (Input.GetKeyDown(KeyCode.Alpha3)) GameManager.Instance.SetGameSpeed(2.0f);
             else if (Input.GetKeyDown(KeyCode.Alpha4)) GameManager.Instance.SetGameSpeed(3.0f);
             else if (Input.GetKeyDown(KeyCode.F)) GameManager.Instance.CycleGameSpeed();
+
+            // Combat Air Support Hotkeys: Q (Fighter CAS), E (B-2 Stealth Bomber)
+            if (!isQuitConfirmOpen && GameManager.Instance.CurrentState == GameManager.GameState.Combat && AirSupportManager.Instance != null)
+            {
+                if (Input.GetKeyDown(KeyCode.Q))
+                {
+                    AirSupportManager.Instance.ToggleFighterTargeting();
+                }
+                else if (Input.GetKeyDown(KeyCode.E))
+                {
+                    AirSupportManager.Instance.ToggleB2Targeting();
+                }
+            }
         }
     }
 
@@ -207,6 +220,18 @@ public class UIManager : MonoBehaviour
             float devH = GameManager.Instance.isDevModeUnlocked ? 495f : 175f;
             Rect devPanelRect = new Rect(Screen.width - 355f, 118f, 345f, devH);
             if (devPanelRect.Contains(mouseGuiPos)) return true;
+        }
+
+        if (AirSupportManager.Instance != null)
+        {
+            if (AirSupportManager.Instance.CanOperateFighterInCombat() && GetFighterHudButtonRect().Contains(mouseGuiPos))
+            {
+                return true;
+            }
+            if (AirSupportManager.Instance.CanOperateB2InCombat() && GetB2HudButtonRect().Contains(mouseGuiPos))
+            {
+                return true;
+            }
         }
 
         // 4. Modal Dialogs (Reward, Route, Victory)
@@ -894,7 +919,10 @@ public class UIManager : MonoBehaviour
         bool isLimitReached = (maxLimit > 0 && activeCount >= maxLimit);
         string limitTag = (maxLimit > 0) ? $" [{activeCount}/{maxLimit}]" : "";
 
-        string costLabel = (matCost > 0) ? $"({goldCost}G / {matCost}M)" : $"({goldCost}G / +10 SUP)";
+        int specCost = Building.GetSpecialMaterialCost(type);
+        string costLabel = (specCost > 0)
+            ? $"({goldCost}G/{matCost}M/{specCost}💎)"
+            : ((matCost > 0) ? $"({goldCost}G / {matCost}M)" : $"({goldCost}G / +10 SUP)");
         string subText = !isUnlocked
             ? $"🔒 After Stg {reqStage}"
             : (isLimitReached ? $"⛔ MAX {maxLimit} REACHED" : (storedCount > 0 ? "★ FREE Stock" : costLabel));
@@ -926,11 +954,32 @@ public class UIManager : MonoBehaviour
         GUI.Box(new Rect(15f, Screen.height - 48, 600, 36), "Controls: WASD: Pan | Scroll: Zoom | V: View | G: Grid | M: Mute | TAB: Menu | H: HUD", boxStyle);
     }
 
+    public static Rect GetFighterHudButtonRect()
+    {
+        return new Rect(20f, Screen.height - 104f, 165f, 84f);
+    }
+
+    public static Rect GetB2HudButtonRect()
+    {
+        bool fighterActive = (AirSupportManager.Instance != null && AirSupportManager.Instance.CanOperateFighterInCombat());
+        float x = fighterActive ? 197f : 20f;
+        return new Rect(x, Screen.height - 104f, 165f, 84f);
+    }
+
     void DrawAirSupportTabUI(float startX, float curY, float width, float totalH)
     {
         // Air Support Fleet Selection Cards
         float cardH = 78f;
         float cardGap = 8f;
+
+        bool fighterOwned = (AirSupportManager.Instance != null && AirSupportManager.Instance.IsFighterOwned);
+        bool canAffordFighter = (AirSupportManager.Instance != null && AirSupportManager.Instance.CanAffordFighter());
+        bool isDevFree = (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode);
+        int fighterLv = (AirSupportManager.Instance != null) ? AirSupportManager.Instance.FighterUpgradeLevel : 0;
+        int fighterW = (AirSupportManager.Instance != null) ? AirSupportManager.Instance.GetFighterBlockWidth() : 2;
+        int fighterL = (AirSupportManager.Instance != null) ? AirSupportManager.Instance.GetFighterBlockLength() : 5;
+        int fighterPlanes = (AirSupportManager.Instance != null) ? AirSupportManager.Instance.GetFighterPlaneCount() : 1;
+        string fighterStarBadge = fighterOwned ? (fighterLv > 0 ? $" [Lv.{fighterLv}/2 {new string('★', fighterLv)}]" : " [Lv.0/2]") : "";
 
         // --- Card 1: Fighter Jet ---
         bool isJetSelected = (SelectedAircraft == AircraftType.FighterJet);
@@ -939,7 +988,7 @@ public class UIManager : MonoBehaviour
         GUI.backgroundColor = Color.white;
 
         // Aircraft Icon / Select Button
-        GUI.backgroundColor = isJetSelected ? new Color(0.35f, 0.95f, 1.0f) : new Color(0.45f, 0.55f, 0.65f);
+        GUI.backgroundColor = fighterOwned ? new Color(0.25f, 0.9f, 0.45f) : (isJetSelected ? new Color(0.35f, 0.95f, 1.0f) : new Color(0.45f, 0.55f, 0.65f));
         if (GUI.Button(new Rect(startX + 8f, curY + 8f, 54f, 62f), "✈️\n\nJET", buttonStyle))
         {
             SelectedAircraft = AircraftType.FighterJet;
@@ -948,32 +997,49 @@ public class UIManager : MonoBehaviour
         }
 
         // Aircraft Details
-        GUI.Label(new Rect(startX + 70f, curY + 8f, width - 160f, 20f), "FIGHTER JET (A-10 CAS)", subHeaderStyle);
-        GUI.Label(new Rect(startX + 70f, curY + 28f, width - 160f, 18f), "• Close Air Support: Gun Run & Rockets", descBodyStyle);
-        GUI.color = new Color(0.45f, 1.0f, 0.75f);
-        GUI.Label(new Rect(startX + 70f, curY + 46f, width - 160f, 18f), "🔩 Cost: Material Only (Amount TBD)", descBodyStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 8f, width - 160f, 20f), $"FIGHTER{fighterStarBadge}", subHeaderStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 28f, width - 160f, 18f), $"• {fighterW}x{fighterL} ({fighterPlanes} Plane{(fighterPlanes > 1 ? "s" : "")}, 7s CD)", descBodyStyle);
+        GUI.color = fighterOwned ? new Color(0.35f, 1.0f, 0.55f) : (canAffordFighter ? new Color(0.45f, 1.0f, 0.75f) : new Color(1.0f, 0.45f, 0.45f));
+        string fighterCostLabel = fighterOwned
+            ? "✓ OWNED — Combat Icon Ready!"
+            : (isDevFree ? "🔩 Cost: FREE [DEV]" : $"🔩 Cost: {AirSupportManager.FIGHTER_MATERIAL_COST} Materials");
+        GUI.Label(new Rect(startX + 70f, curY + 46f, width - 160f, 18f), fighterCostLabel, descBodyStyle);
         GUI.color = Color.white;
 
-        // Action / State Button on right
-        GUI.backgroundColor = isJetSelected ? new Color(0.2f, 0.85f, 0.45f) : new Color(0.35f, 0.42f, 0.5f);
-        if (GUI.Button(new Rect(startX + width - 82f, curY + 18f, 74f, 42f), isJetSelected ? "ACTIVE\n✓ READY" : "SELECT\nAIRCRAFT", buttonStyle))
+        // Purchase / Owned Action Button on right
+        GUI.backgroundColor = fighterOwned
+            ? new Color(0.2f, 0.85f, 0.45f)
+            : (canAffordFighter ? new Color(0.22f, 0.78f, 0.95f) : new Color(0.45f, 0.25f, 0.25f));
+        string fighterBtnText = fighterOwned
+            ? "OWNED\n✓ READY"
+            : (isDevFree ? "BUILD\nFREE" : $"BUILD\n{AirSupportManager.FIGHTER_MATERIAL_COST} M");
+        if (GUI.Button(new Rect(startX + width - 86f, curY + 18f, 78f, 42f), fighterBtnText, buttonStyle))
         {
             SelectedAircraft = AircraftType.FighterJet;
             descScrollPos = Vector2.zero;
-            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+            if (!fighterOwned && AirSupportManager.Instance != null)
+            {
+                AirSupportManager.Instance.TryPurchaseFighter();
+            }
+            else
+            {
+                AudioHelper.PlaySound(SoundEffect.ButtonClick);
+            }
         }
         GUI.backgroundColor = Color.white;
 
         curY += cardH + cardGap;
 
         // --- Card 2: B-2 Stealth Bomber ---
+        bool b2Owned = (AirSupportManager.Instance != null && AirSupportManager.Instance.IsB2Owned);
+        bool canAffordB2 = (AirSupportManager.Instance != null && AirSupportManager.Instance.CanAffordB2());
         bool isB2Selected = (SelectedAircraft == AircraftType.B2Bomber);
-        GUI.backgroundColor = isB2Selected ? new Color(0.2f, 0.55f, 0.85f, 0.95f) : new Color(0.18f, 0.22f, 0.26f, 0.9f);
+        GUI.backgroundColor = isB2Selected ? new Color(0.2f, 0.55f, 0.85f, 0.95f) : new Color(0.16f, 0.19f, 0.23f, 0.9f);
         GUI.Box(new Rect(startX, curY, width, cardH), GUIContent.none, boxStyle);
         GUI.backgroundColor = Color.white;
 
         // Aircraft Icon / Select Button
-        GUI.backgroundColor = isB2Selected ? new Color(0.35f, 0.95f, 1.0f) : new Color(0.45f, 0.55f, 0.65f);
+        GUI.backgroundColor = b2Owned ? new Color(0.25f, 0.9f, 0.45f) : (isB2Selected ? new Color(0.35f, 0.95f, 1.0f) : new Color(0.38f, 0.42f, 0.48f));
         if (GUI.Button(new Rect(startX + 8f, curY + 8f, 54f, 62f), "💣\n\nB-2", buttonStyle))
         {
             SelectedAircraft = AircraftType.B2Bomber;
@@ -982,19 +1048,35 @@ public class UIManager : MonoBehaviour
         }
 
         // Aircraft Details
-        GUI.Label(new Rect(startX + 70f, curY + 8f, width - 160f, 20f), "B-2 STEALTH BOMBER", subHeaderStyle);
-        GUI.Label(new Rect(startX + 70f, curY + 28f, width - 160f, 18f), "• Heavy Strategic Carpet Bombing", descBodyStyle);
-        GUI.color = new Color(0.45f, 1.0f, 0.75f);
-        GUI.Label(new Rect(startX + 70f, curY + 46f, width - 160f, 18f), "🔩 Cost: Material Only (Amount TBD)", descBodyStyle);
+        string b2Tag = b2Owned ? " [READY]" : "";
+        GUI.Label(new Rect(startX + 70f, curY + 8f, width - 160f, 20f), $"B-2 STEALTH{b2Tag}", subHeaderStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 28f, width - 160f, 18f), $"• {AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS} ({AirSupportManager.B2_BOMB_COUNT} Bombs, {AirSupportManager.B2_COOLDOWN:0}s CD)", descBodyStyle);
+        GUI.color = b2Owned ? new Color(0.35f, 1.0f, 0.55f) : (canAffordB2 ? new Color(0.45f, 1.0f, 0.75f) : new Color(1.0f, 0.45f, 0.45f));
+        string b2CostLabel = b2Owned
+            ? "✓ OWNED — Tactical HUD Icon Ready!"
+            : (isDevFree ? "🔩 Cost: FREE [DEV]" : $"🔩 Cost: {AirSupportManager.B2_MATERIAL_COST}M + {AirSupportManager.B2_SPECIAL_COST} 💎 Spec");
+        GUI.Label(new Rect(startX + 70f, curY + 46f, width - 160f, 18f), b2CostLabel, descBodyStyle);
         GUI.color = Color.white;
 
-        // Action / State Button on right
-        GUI.backgroundColor = isB2Selected ? new Color(0.2f, 0.85f, 0.45f) : new Color(0.35f, 0.42f, 0.5f);
-        if (GUI.Button(new Rect(startX + width - 82f, curY + 18f, 74f, 42f), isB2Selected ? "ACTIVE\n✓ READY" : "SELECT\nAIRCRAFT", buttonStyle))
+        // Purchase / Owned Action Button on right
+        GUI.backgroundColor = b2Owned
+            ? new Color(0.2f, 0.85f, 0.45f)
+            : (canAffordB2 ? new Color(0.22f, 0.78f, 0.95f) : new Color(0.45f, 0.25f, 0.25f));
+        string b2BtnText = b2Owned
+            ? "OWNED\n✓ READY"
+            : (isDevFree ? "BUILD\nFREE" : $"BUILD\n{AirSupportManager.B2_MATERIAL_COST}M+{AirSupportManager.B2_SPECIAL_COST}💎");
+        if (GUI.Button(new Rect(startX + width - 86f, curY + 18f, 78f, 42f), b2BtnText, buttonStyle))
         {
             SelectedAircraft = AircraftType.B2Bomber;
             descScrollPos = Vector2.zero;
-            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+            if (!b2Owned && AirSupportManager.Instance != null)
+            {
+                AirSupportManager.Instance.TryPurchaseB2();
+            }
+            else
+            {
+                AudioHelper.PlaySound(SoundEffect.ButtonClick);
+            }
         }
         GUI.backgroundColor = Color.white;
     }
@@ -1003,39 +1085,99 @@ public class UIManager : MonoBehaviour
     {
         string title;
         string body;
+        var air = AirSupportManager.Instance;
+        bool fighterOwned = (air != null && air.IsFighterOwned);
+        int fighterLv = (air != null) ? air.FighterUpgradeLevel : 0;
+        int maxLv = AirSupportManager.FIGHTER_MAX_UPGRADE_LEVEL;
+        bool b2Owned = (air != null && air.IsB2Owned);
 
         if (SelectedAircraft == AircraftType.FighterJet)
         {
-            title = "✈️ FIGHTER JET (Close Air Support)";
+            string lvTag = fighterOwned ? (fighterLv > 0 ? $" [Lv.{fighterLv}/{maxLv} {new string('★', fighterLv)}]" : $" [Lv.0/{maxLv}]") : "";
+            title = $"✈️ FIGHTER{lvTag} (Close Air Support)";
+            string ownershipLine = fighterOwned
+                ? "<color=#55ff55>✓ Status: BUILT — Click HUD Icon during Combat to Strike!</color>\n"
+                : $"• Build Cost: {AirSupportManager.FIGHTER_MATERIAL_COST} Materials (0 Gold)\n";
+            int planeCount = (air != null) ? air.GetFighterPlaneCount() : 1;
+            int areaW = (air != null) ? air.GetFighterBlockWidth() : 2;
+            int areaL = (air != null) ? air.GetFighterBlockLength() : 5;
+            float dmgMult = (air != null) ? air.GetFighterDamageMultiplier() : 1.0f;
+            float totalStrafeDmg = (air != null) ? air.GetFighterTotalDamage() : (AirSupportManager.FIGHTER_SHOTS_PER_BURST * AirSupportManager.FIGHTER_DAMAGE_PER_SHOT);
+
             body =
-                "• Aircraft Model: Fighter_Plane.fbx\n" +
-                "• Tactical Role: High-Speed Precision Strafing Run\n" +
-                "• Weapon System: GAU 30mm Rotary Gun + HE Rocket Pods\n" +
-                "• Deployment Cost: Materials Only (No Gold required)\n" +
-                "• Attack Method: Linear strafe run across designated lane\n" +
-                "• Status: Standby on Air Base flight deck (Ready for deployment)\n" +
-                "★ Mission Profile: Shreds zombie rush waves and swarms with rapid-fire kinetic & explosive shrapnel.";
+                ownershipLine +
+                $"• Squadron: {planeCount} Fighter{(planeCount > 1 ? "s" : "")} | Area: {areaW}x{areaL} Blocks\n" +
+                $"• Total Burst Damage: {totalStrafeDmg:0.#} Dmg (+{(dmgMult - 1f) * 100f:0}% Bonus, 6 Shots/Plane)\n" +
+                $"• Flight Pattern: Left → Dive Strafe → Right (Repeats every {AirSupportManager.FIGHTER_REATTACK_COOLDOWN:0}s)\n" +
+                "• Re-Target: Click HUD Icon or Press [Q] in battle to relocate target!";
         }
         else
         {
-            title = "💣 B-2 STEALTH BOMBER (Heavy Bomber)";
+            title = "💣 B-2 STEALTH BOMBER (Carpet Strike)";
+            string b2StatusLine = b2Owned
+                ? "<color=#55ff55>✓ Status: BUILT — Click HUD Icon or Press [E] in Combat!</color>\n"
+                : $"• Build Cost: {AirSupportManager.B2_MATERIAL_COST} Materials + {AirSupportManager.B2_SPECIAL_COST} 💎 Special (0 Gold)\n";
             body =
-                "• Aircraft Model: B2.fbx\n" +
-                "• Tactical Role: Strategic Saturation Carpet Bombing\n" +
-                "• Weapon System: High-Yield Cluster Bomb Salvo\n" +
-                "• Deployment Cost: Materials Only (No Gold required)\n" +
-                "• Attack Method: Wide-area saturation bombing strike\n" +
-                "• Status: Armed in Air Base stealth hangar (Ready for deployment)\n" +
-                "★ Mission Profile: Delivers catastrophic area devastation, instantly annihilating giant clumps and elite abominations.";
+                b2StatusLine +
+                $"• Strike Zone: {AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS} Blocks ({AirSupportManager.B2_BOMB_COUNT} Heavy Bombs, 5x4 each)\n" +
+                $"• Bomb Damage: {AirSupportManager.B2_BOMB_DAMAGE:0} AOE Dmg/Target (Lighter than ICBM 1,700)\n" +
+                $"• Targeting: Manual ICBM-Style [E] | {AirSupportManager.B2_COOLDOWN:0}s CD | ~1.7s Lead Time\n" +
+                "• Flight Profile: Heavy Stealth Glide (Left → Right, Slower & Larger than Fighter)";
         }
 
         float contentW = viewW - 16f;
         float titleH = Mathf.Max(20f, descTitleStyle.CalcHeight(new GUIContent(title), contentW));
         float bodyH = Mathf.Max(30f, descBodyStyle.CalcHeight(new GUIContent(body), contentW));
 
-        float totalContentH = titleH + 6f + bodyH + 20f;
+        string upgPreviewText = "";
+        float upgPreviewH = 0f;
+        float upgSectionH = 0f;
+        if (SelectedAircraft == AircraftType.FighterJet)
+        {
+            if (!fighterOwned)
+            {
+                upgPreviewText = "ℹ️ Build Fighter above, then click the Plane Icon in Combat to select strike zone.";
+                upgPreviewH = Mathf.Max(20f, descBodyStyle.CalcHeight(new GUIContent(upgPreviewText), contentW));
+                upgSectionH = 8f + upgPreviewH + 4f;
+            }
+            else if (fighterLv >= maxLv)
+            {
+                upgPreviewText = "★ MAX UPGRADE (Lv.2): 3 Fighters | 4x5 Area | +30% Total Dmg (1,053)";
+                upgPreviewH = Mathf.Max(20f, descBodyStyle.CalcHeight(new GUIContent(upgPreviewText), contentW));
+                upgSectionH = 8f + upgPreviewH + 6f + 30f + 6f;
+            }
+            else
+            {
+                int nextLv = fighterLv + 1;
+                upgPreviewText = (nextLv == 1)
+                    ? "Lv.1 Bonus: +1 Plane (2 total), +15% Overall Dmg (931.5), Area Width +1 (3x5)"
+                    : "Lv.2 Bonus: +1 Plane (3 total), +15% More Dmg (+30% = 1,053), Area Width +1 (4x5)";
+                upgPreviewH = Mathf.Max(20f, descBodyStyle.CalcHeight(new GUIContent(upgPreviewText), contentW));
+                upgSectionH = 8f + upgPreviewH + 6f + 30f + 6f;
+            }
+        }
+        else
+        {
+            upgPreviewText = b2Owned
+                ? $"✓ READY: Unlike Fighter, B-2 does NOT auto-repeat — aim manually each {AirSupportManager.B2_COOLDOWN:0}s cooldown."
+                : "ℹ️ Build B-2 above (450M + 5 Special), then click the B-2 Icon in Combat to drop 3 bombs.";
+            upgPreviewH = Mathf.Max(20f, descBodyStyle.CalcHeight(new GUIContent(upgPreviewText), contentW));
+            upgSectionH = 8f + upgPreviewH + 4f;
+        }
+
+        float totalContentH = titleH + 6f + bodyH + upgSectionH + 12f;
         Rect viewRect = new Rect(x, y, viewW, viewH);
         Rect contentRect = new Rect(0, 0, contentW, totalContentH);
+
+        Event e = Event.current;
+        if (e != null && e.type == EventType.ScrollWheel && viewRect.Contains(e.mousePosition))
+        {
+            descScrollPos.y += e.delta.y * 24f;
+            float maxScroll = Mathf.Max(0f, totalContentH - viewH);
+            descScrollPos.y = Mathf.Clamp(descScrollPos.y, 0f, maxScroll);
+            e.Use();
+        }
+        descScrollPos.y = Mathf.Clamp(descScrollPos.y, 0f, Mathf.Max(0f, totalContentH - viewH));
 
         descScrollPos = GUI.BeginScrollView(viewRect, descScrollPos, contentRect, false, false);
         float curY = 0f;
@@ -1046,9 +1188,57 @@ public class UIManager : MonoBehaviour
         GUI.Label(new Rect(0f, curY, contentW, bodyH), body, descBodyStyle);
         curY += bodyH + 8f;
 
-        GUI.color = new Color(0.3f, 0.85f, 1.0f);
-        GUI.Label(new Rect(0f, curY, contentW, 20f), "ℹ️ Flight targeting coordinates & material costs will activate in battle.", descBodyStyle);
+        GUI.color = new Color(1f, 1f, 1f, 0.2f);
+        GUI.Box(new Rect(0f, curY, contentW, 1f), GUIContent.none, boxStyle);
         GUI.color = Color.white;
+        curY += 7f;
+
+        if (SelectedAircraft == AircraftType.FighterJet)
+        {
+            if (!fighterOwned)
+            {
+                GUI.color = new Color(0.3f, 0.85f, 1.0f);
+                GUI.Label(new Rect(0f, curY, contentW, upgPreviewH), upgPreviewText, descBodyStyle);
+                GUI.color = Color.white;
+            }
+            else if (fighterLv >= maxLv)
+            {
+                GUI.color = new Color(1.0f, 0.85f, 0.25f);
+                GUI.Label(new Rect(0f, curY, contentW, upgPreviewH), upgPreviewText, descBodyStyle);
+                GUI.color = Color.white;
+                curY += upgPreviewH + 6f;
+
+                GUI.backgroundColor = new Color(0.85f, 0.68f, 0.15f);
+                GUI.Box(new Rect(0f, curY, contentW, 30f), "🌟 MAX UPGRADE REACHED (LV.2 ★★)", buttonStyle);
+                GUI.backgroundColor = Color.white;
+            }
+            else
+            {
+                int nextLv = fighterLv + 1;
+                int matCost = (air != null) ? air.GetFighterUpgradeCost(nextLv) : 100;
+                bool canAfford = (air != null && air.CanUpgradeFighter());
+                bool isFreeDev = (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode);
+
+                GUI.color = new Color(0.75f, 0.95f, 1.0f);
+                GUI.Label(new Rect(0f, curY, contentW, upgPreviewH), upgPreviewText, descBodyStyle);
+                GUI.color = Color.white;
+                curY += upgPreviewH + 6f;
+
+                GUI.backgroundColor = canAfford ? new Color(0.2f, 0.85f, 0.35f) : new Color(0.45f, 0.25f, 0.25f);
+                string costStr = isFreeDev ? "FREE [DEV]" : $"{matCost} Materials";
+                if (GUI.Button(new Rect(0f, curY, contentW, 30f), $"⬆️ UPGRADE FIGHTER LV.{nextLv} ({costStr})", buttonStyle))
+                {
+                    air?.TryUpgradeFighter();
+                }
+                GUI.backgroundColor = Color.white;
+            }
+        }
+        else
+        {
+            GUI.color = b2Owned ? new Color(0.45f, 1.0f, 0.65f) : new Color(0.3f, 0.85f, 1.0f);
+            GUI.Label(new Rect(0f, curY, contentW, upgPreviewH), upgPreviewText, descBodyStyle);
+            GUI.color = Color.white;
+        }
 
         GUI.EndScrollView();
     }
@@ -1313,7 +1503,7 @@ public class UIManager : MonoBehaviour
                     icbmUnlockStatus +
                     stockNotice +
                     foundryCapNotice +
-                    "• Cost: 900 Gold, 350 Mats | SUP: 15 | Size: 3x4\n" +
+                    "• Cost: 900G, 350M, 4 💎 Spec | SUP: 15 | 3x4\n" +
                     "• Spawns: ICBM Launcher (Max Limit: 1)\n" +
                     "• Control: L-Click Truck -> L-Click Target\n" +
                     "• Stats: 85 DPS | 20.0s Reload (1,700 Dmg)\n" +
@@ -1360,7 +1550,7 @@ public class UIManager : MonoBehaviour
                     "• 3D Model: ATC Tower (Air Command Facility)\n" +
                     "• Feature: Unlocks [✈️ Air Base] Tab in Menu\n" +
                     "• Available Aircraft: Fighter Jet & B-2 Bomber\n" +
-                    "• Mission Cost: Consumes Materials Only\n" +
+                    "• Fleet Cost: Materials (Fighter) & 💎 Special (B-2)\n" +
                     "★ Role: Strategic air strikes & carpet bombardment.";
                 break;
 
@@ -1392,6 +1582,98 @@ public class UIManager : MonoBehaviour
             GUI.Label(new Rect(boxX + 10, boxY + 28, boxW - 20, 25), $"Zombies: {WaveManager.Instance.zombiesRemaining}/{WaveManager.Instance.totalZombiesInWave}{bossTag}{supTag}", subHeaderStyle);
             float progress = (float)(WaveManager.Instance.totalZombiesInWave - WaveManager.Instance.zombiesRemaining) / Mathf.Max(1, WaveManager.Instance.totalZombiesInWave);
             GUI.HorizontalSlider(new Rect(boxX + 15, boxY + 56, boxW - 30, 20), progress, 0f, 1f);
+        }
+
+        // Combat Air Support Icon Button (Shown once Fighter is built & Air Base is active)
+        if (AirSupportManager.Instance != null && AirSupportManager.Instance.CanOperateFighterInCombat())
+        {
+            var air = AirSupportManager.Instance;
+            Rect btnRect = GetFighterHudButtonRect();
+            int fWidth = air.GetFighterBlockWidth();
+            int fLength = air.GetFighterBlockLength();
+            int fPlanes = air.GetFighterPlaneCount();
+            string lvBadge = (air.FighterUpgradeLevel > 0) ? $" {new string('★', air.FighterUpgradeLevel)}" : "";
+
+            string statusLine;
+            if (air.IsTargetingFighter)
+            {
+                GUI.backgroundColor = new Color(1.0f, 0.45f, 0.15f, 0.98f);
+                statusLine = $"🎯 AIMING {fWidth}x{fLength} ZONE\nClick Map (R-Cancel)";
+            }
+            else if (!air.HasFighterTarget)
+            {
+                GUI.backgroundColor = new Color(0.20f, 0.78f, 0.98f, 0.96f);
+                statusLine = $"✓ READY ({fPlanes}x {fWidth}x{fLength})\n[CLICK TO TARGET]";
+            }
+            else if (air.IsFighterFlying)
+            {
+                GUI.backgroundColor = new Color(1.0f, 0.72f, 0.18f, 0.96f);
+                statusLine = $"🔥 {fPlanes}x STRAFING\n(Click to Move)";
+            }
+            else
+            {
+                GUI.backgroundColor = new Color(0.22f, 0.72f, 0.45f, 0.95f);
+                statusLine = $"⏱️ NEXT: {air.FighterCooldownRemaining:0.0}s\n(Click to Move)";
+            }
+
+            if (GUI.Button(btnRect, $"✈️ FIGHTER [Q]{lvBadge}\n{statusLine}", buttonStyle))
+            {
+                air.ToggleFighterTargeting();
+            }
+            GUI.backgroundColor = Color.white;
+
+            if (air.IsTargetingFighter)
+            {
+                GUI.backgroundColor = new Color(0.85f, 0.25f, 0.12f, 0.92f);
+                GUI.Box(new Rect(Screen.width / 2f - 240f, boxY + boxH + 8f, 480f, 34f),
+                    $"🎯 FIGHTER STRIKE ({fWidth}x{fLength} Blocks) — Left-Click Battlefield to Confirm | Right-Click to Cancel",
+                    subHeaderStyle);
+                GUI.backgroundColor = Color.white;
+            }
+        }
+
+        // Combat B-2 Stealth Bomber Icon Button (Shown once B-2 is built & Air Base is active)
+        if (AirSupportManager.Instance != null && AirSupportManager.Instance.CanOperateB2InCombat())
+        {
+            var air = AirSupportManager.Instance;
+            Rect b2Rect = GetB2HudButtonRect();
+
+            string b2StatusLine;
+            if (air.IsTargetingB2)
+            {
+                GUI.backgroundColor = new Color(1.0f, 0.38f, 0.12f, 0.98f);
+                b2StatusLine = $"🎯 AIMING {AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS}\nClick Map (R-Cancel)";
+            }
+            else if (air.IsB2Flying)
+            {
+                GUI.backgroundColor = new Color(1.0f, 0.65f, 0.15f, 0.96f);
+                b2StatusLine = $"💣 CARPET BOMBING\n⏳ CD: {air.B2CooldownRemaining:0.0}s";
+            }
+            else if (air.B2CooldownRemaining > 0f)
+            {
+                GUI.backgroundColor = new Color(0.38f, 0.38f, 0.42f, 0.92f);
+                b2StatusLine = $"⏳ REARMING\nCD: {air.B2CooldownRemaining:0.0}s";
+            }
+            else
+            {
+                GUI.backgroundColor = new Color(0.85f, 0.45f, 0.18f, 0.96f);
+                b2StatusLine = $"✓ READY ({AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS})\n[CLICK TO TARGET]";
+            }
+
+            if (GUI.Button(b2Rect, $"💣 B-2 [E]\n{b2StatusLine}", buttonStyle))
+            {
+                air.ToggleB2Targeting();
+            }
+            GUI.backgroundColor = Color.white;
+
+            if (air.IsTargetingB2)
+            {
+                GUI.backgroundColor = new Color(0.88f, 0.28f, 0.10f, 0.92f);
+                GUI.Box(new Rect(Screen.width / 2f - 290f, boxY + boxH + 8f, 580f, 34f),
+                    $"💣 B-2 ({AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS}, ~1.7s Lead) — Aim Ahead of Moving Hordes! | L-Click: Bomb | R-Click: Cancel",
+                    subHeaderStyle);
+                GUI.backgroundColor = Color.white;
+            }
         }
     }
 
@@ -1907,6 +2189,7 @@ public class UIManager : MonoBehaviour
         {
             ResourceManager.Instance?.SpendGold(-1000);
             ResourceManager.Instance?.SpendMaterials(-1000);
+            ResourceManager.Instance?.SpendSpecialMaterials(-20);
         }
 
         bool isElite = GameManager.Instance.isEliteBattleRoute;

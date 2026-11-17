@@ -29,7 +29,9 @@ public enum SoundEffect
     EventAlert,
     ZombieHit,
     GuardianStomp,
-    GuardianPunch
+    GuardianPunch,
+    B2FlyoverWhoosh,
+    B2BombDropping
 }
 
 public static class AudioHelper
@@ -52,20 +54,66 @@ public static class AudioHelper
         _preMuteVolume = (MasterVolume > 0.05f) ? MasterVolume : 1.0f;
         AudioListener.volume = IsMuted ? 0f : MasterVolume;
 
-        // Pre-warm Guardian audio clips in memory to eliminate any runtime I/O latency
+        // Pre-warm Guardian & Air Support audio clips in memory to eliminate any runtime I/O latency
         PreloadClip(SoundEffect.GuardianPunch);
         PreloadClip(SoundEffect.GuardianStomp);
+        PreloadClip(SoundEffect.B2FlyoverWhoosh);
+        PreloadClip(SoundEffect.B2BombDropping);
     }
 
     private static void PreloadClip(SoundEffect effect)
     {
-        if (_clipCache.ContainsKey(effect) && _clipCache[effect] != null) return;
+        GetClip(effect);
+    }
+
+    public static AudioClip GetClip(SoundEffect effect)
+    {
+        if (_clipCache.TryGetValue(effect, out var cached) && cached != null) return cached;
+
         AudioClip clip = null;
-        if (effect == SoundEffect.GuardianPunch)
+        if (effect == SoundEffect.SMGShoot)
         {
-            clip = Resources.Load<AudioClip>("Audio/soraatwod-punch-416719");
-            if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianPunch");
-            if (clip != null) clip = CreateInstantClip(clip, 0.035f);
+            clip = Resources.Load<AudioClip>("Audio/SMGShoot");
+        }
+        else if (effect == SoundEffect.SMGGrenade1)
+        {
+            clip = Resources.Load<AudioClip>("Audio/SMGGrenade1");
+        }
+        else if (effect == SoundEffect.SMGGrenade2)
+        {
+            clip = Resources.Load<AudioClip>("Audio/SMGGrenade2");
+        }
+        else if (effect == SoundEffect.SniperShoot1)
+        {
+            clip = Resources.Load<AudioClip>("Audio/SniperShoot1");
+        }
+        else if (effect == SoundEffect.SniperShoot2)
+        {
+            clip = Resources.Load<AudioClip>("Audio/SniperShoot2");
+        }
+        else if (effect == SoundEffect.SniperShoot3)
+        {
+            clip = Resources.Load<AudioClip>("Audio/SniperShoot3");
+        }
+        else if (effect == SoundEffect.SniperShoot4)
+        {
+            clip = Resources.Load<AudioClip>("Audio/SniperShoot4");
+        }
+        else if (effect == SoundEffect.TankShoot1)
+        {
+            clip = Resources.Load<AudioClip>("Audio/TankShoot1");
+        }
+        else if (effect == SoundEffect.TankShoot2)
+        {
+            clip = Resources.Load<AudioClip>("Audio/TankShoot2");
+        }
+        else if (effect == SoundEffect.TankExplosionDebris)
+        {
+            clip = Resources.Load<AudioClip>("Audio/TankExplosionDebris");
+        }
+        else if (effect == SoundEffect.ICBMExplosion)
+        {
+            clip = Resources.Load<AudioClip>("Audio/ICBMExplosion");
         }
         else if (effect == SoundEffect.GuardianStomp)
         {
@@ -73,10 +121,52 @@ public static class AudioHelper
             if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianStomp");
             if (clip != null) clip = CreateInstantClip(clip, 0.035f);
         }
-        if (clip != null)
+        else if (effect == SoundEffect.GuardianPunch)
+        {
+            clip = Resources.Load<AudioClip>("Audio/soraatwod-punch-416719");
+            if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianPunch");
+            if (clip != null) clip = CreateInstantClip(clip, 0.035f);
+        }
+        else if (effect == SoundEffect.B2FlyoverWhoosh)
+        {
+            clip = Resources.Load<AudioClip>("Audio/floraphonic-flying-drone-whoosh-1-185324");
+            if (clip != null) clip = CreateInstantClip(clip, 0.020f);
+        }
+        else if (effect == SoundEffect.B2BombDropping)
+        {
+            clip = Resources.Load<AudioClip>("Audio/freesound_community-bomb-dropping-101151");
+            if (clip != null) clip = CreateInstantClip(clip, 0.020f);
+        }
+
+        if (clip == null)
+        {
+            clip = GenerateProceduralClip(effect);
+            if (clip != null &&
+                effect != SoundEffect.SMGShoot &&
+                effect != SoundEffect.SMGGrenade1 &&
+                effect != SoundEffect.SMGGrenade2 &&
+                effect != SoundEffect.SniperShoot1 &&
+                effect != SoundEffect.SniperShoot2 &&
+                effect != SoundEffect.SniperShoot3 &&
+                effect != SoundEffect.SniperShoot4 &&
+                effect != SoundEffect.TankShoot1 &&
+                effect != SoundEffect.TankShoot2 &&
+                effect != SoundEffect.TankExplosionDebris &&
+                effect != SoundEffect.ICBMExplosion &&
+                effect != SoundEffect.GuardianStomp &&
+                effect != SoundEffect.GuardianPunch &&
+                effect != SoundEffect.B2FlyoverWhoosh &&
+                effect != SoundEffect.B2BombDropping)
+            {
+                _clipCache[effect] = clip;
+            }
+        }
+        else
         {
             _clipCache[effect] = clip;
         }
+
+        return clip;
     }
 
     public static void SetMasterVolume(float volume)
@@ -230,90 +320,7 @@ public static class AudioHelper
                 _audioSource.spatialBlend = 0f;
             }
 
-            if (!_clipCache.TryGetValue(effect, out var clip) || clip == null)
-            {
-                if (effect == SoundEffect.SMGShoot)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/SMGShoot");
-                }
-                else if (effect == SoundEffect.SMGGrenade1)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/SMGGrenade1");
-                }
-                else if (effect == SoundEffect.SMGGrenade2)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/SMGGrenade2");
-                }
-                else if (effect == SoundEffect.SniperShoot1)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/SniperShoot1");
-                }
-                else if (effect == SoundEffect.SniperShoot2)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/SniperShoot2");
-                }
-                else if (effect == SoundEffect.SniperShoot3)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/SniperShoot3");
-                }
-                else if (effect == SoundEffect.SniperShoot4)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/SniperShoot4");
-                }
-                else if (effect == SoundEffect.TankShoot1)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/TankShoot1");
-                }
-                else if (effect == SoundEffect.TankShoot2)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/TankShoot2");
-                }
-                else if (effect == SoundEffect.TankExplosionDebris)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/TankExplosionDebris");
-                }
-                else if (effect == SoundEffect.ICBMExplosion)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/ICBMExplosion");
-                }
-                else if (effect == SoundEffect.GuardianStomp)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/freesound_community-stomp2-93279");
-                    if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianStomp");
-                    if (clip != null) clip = CreateInstantClip(clip, 0.035f);
-                }
-                else if (effect == SoundEffect.GuardianPunch)
-                {
-                    clip = Resources.Load<AudioClip>("Audio/soraatwod-punch-416719");
-                    if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianPunch");
-                    if (clip != null) clip = CreateInstantClip(clip, 0.035f);
-                }
-
-                if (clip == null)
-                {
-                    clip = GenerateProceduralClip(effect);
-                    if (effect != SoundEffect.SMGShoot &&
-                        effect != SoundEffect.SMGGrenade1 &&
-                        effect != SoundEffect.SMGGrenade2 &&
-                        effect != SoundEffect.SniperShoot1 &&
-                        effect != SoundEffect.SniperShoot2 &&
-                        effect != SoundEffect.SniperShoot3 &&
-                        effect != SoundEffect.SniperShoot4 &&
-                        effect != SoundEffect.TankShoot1 &&
-                        effect != SoundEffect.TankShoot2 &&
-                        effect != SoundEffect.TankExplosionDebris &&
-                        effect != SoundEffect.ICBMExplosion &&
-                        effect != SoundEffect.GuardianStomp &&
-                        effect != SoundEffect.GuardianPunch)
-                    {
-                        _clipCache[effect] = clip;
-                    }
-                }
-                else
-                {
-                    _clipCache[effect] = clip;
-                }
-            }
+            AudioClip clip = GetClip(effect);
 
             if (clip != null && _audioSource != null)
             {
@@ -681,6 +688,29 @@ public static class AudioHelper
                     float f = (t < 0.12f) ? 440f : 660f;
                     float env = 1f - ((t % 0.12f) / 0.12f);
                     return Mathf.Sin(2f * Mathf.PI * f * t) * env;
+                };
+                break;
+
+            case SoundEffect.B2FlyoverWhoosh:
+                duration = 2.0f;
+                waveGenerator = t =>
+                {
+                    float norm = t / duration;
+                    float env = Mathf.Sin(Mathf.PI * norm);
+                    float noise = (Random.value * 2f - 1f) * 0.45f;
+                    float hum = Mathf.Sin(2f * Mathf.PI * Mathf.Lerp(110f, 65f, norm) * t) * 0.35f;
+                    return (noise + hum) * env;
+                };
+                break;
+
+            case SoundEffect.B2BombDropping:
+                duration = 0.65f;
+                waveGenerator = t =>
+                {
+                    float norm = t / duration;
+                    float f = Mathf.Lerp(950f, 340f, norm);
+                    float env = Mathf.Clamp01(norm * 3f);
+                    return Mathf.Sin(2f * Mathf.PI * f * t) * 0.4f * env;
                 };
                 break;
 
