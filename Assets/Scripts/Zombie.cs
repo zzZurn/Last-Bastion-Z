@@ -31,7 +31,9 @@ public class Zombie : MonoBehaviour
     public bool isDead { get; private set; } = false;
     private float retargetTimer = 0f;
 
-    // HP Bar texture cache
+    // HP Bar texture cache & damage visibility timer
+    private float hpBarVisibleTimer = 0f;
+    private const float HP_BAR_DISPLAY_DURATION = 3.0f;
     private static Texture2D hpTexture;
     private static GUIStyle bossLabelStyle;
     private static GUIStyle buffedLabelStyle;
@@ -48,6 +50,10 @@ public class Zombie : MonoBehaviour
     void Update()
     {
         if (isDead) return;
+        if (hpBarVisibleTimer > 0f)
+        {
+            hpBarVisibleTimer -= Time.deltaTime;
+        }
         if (GameManager.Instance != null && GameManager.Instance.CurrentState != GameManager.GameState.Combat)
         {
             return;
@@ -769,6 +775,7 @@ public class Zombie : MonoBehaviour
         }
 
         currentHealth -= dmg;
+        hpBarVisibleTimer = HP_BAR_DISPLAY_DURATION;
         AudioHelper.PlaySound(SoundEffect.ZombieHit, 0.12f);
 
         if (isBombaz && currentHealth > 0f && !isBombazEnraged && currentHealth <= maxHealth * 0.40f)
@@ -873,13 +880,6 @@ public class Zombie : MonoBehaviour
         float x = screenPos.x - barW / 2f;
         float y = Screen.height - screenPos.y;
 
-        if (hpTexture == null)
-        {
-            hpTexture = new Texture2D(1, 1);
-            hpTexture.SetPixel(0, 0, Color.white);
-            hpTexture.Apply();
-        }
-
         // Draw Boss or Buffed or Bombaz or Elite Title above bar
         if (isBoss)
         {
@@ -973,23 +973,33 @@ public class Zombie : MonoBehaviour
             GUI.Label(new Rect(screenPos.x - 90f, y - 20f, 180f, 20f), $"💫 STUNNED ({stunTimer:0.0}s)", eliteLabelStyle);
         }
 
-        float pct = Mathf.Clamp01(currentHealth / maxHealth);
+        if (hpBarVisibleTimer > 0f)
+        {
+            if (hpTexture == null)
+            {
+                hpTexture = new Texture2D(1, 1);
+                hpTexture.SetPixel(0, 0, Color.white);
+                hpTexture.Apply();
+            }
 
-        // Background (Dark)
-        GUI.color = new Color(0.1f, 0.1f, 0.1f, 0.9f * visAlpha);
-        GUI.DrawTexture(new Rect(x - 1, y - 1, barW + 2, barH + 2), hpTexture);
+            float pct = Mathf.Clamp01(currentHealth / maxHealth);
 
-        // Health fill
-        Color healthCol = isBoss
-            ? new Color(0.95f, 0.15f, 0.35f) // Crimson red for Tyrant boss
-            : (isBuffed
-                ? new Color(1.0f, 0.62f, 0.15f) // Amber-orange for Buffed Zombie
-                : (isElite
-                    ? new Color(1.0f, 0.8f, 0.2f) // Gold for Elite
-                    : (pct > 0.5f ? new Color(0.2f, 0.9f, 0.2f) : (pct > 0.25f ? new Color(1f, 0.8f, 0.1f) : new Color(0.9f, 0.2f, 0.2f)))));
+            // Background (Dark)
+            GUI.color = new Color(0.1f, 0.1f, 0.1f, 0.9f * visAlpha);
+            GUI.DrawTexture(new Rect(x - 1, y - 1, barW + 2, barH + 2), hpTexture);
 
-        GUI.color = new Color(healthCol.r, healthCol.g, healthCol.b, healthCol.a * visAlpha);
-        GUI.DrawTexture(new Rect(x, y, barW * pct, barH), hpTexture);
+            // Health fill
+            Color healthCol = isBoss
+                ? new Color(0.95f, 0.15f, 0.35f) // Crimson red for Tyrant boss
+                : (isBuffed
+                    ? new Color(1.0f, 0.62f, 0.15f) // Amber-orange for Buffed Zombie
+                    : (isElite
+                        ? new Color(1.0f, 0.8f, 0.2f) // Gold for Elite
+                        : (pct > 0.5f ? new Color(0.2f, 0.9f, 0.2f) : (pct > 0.25f ? new Color(1f, 0.8f, 0.1f) : new Color(0.9f, 0.2f, 0.2f)))));
+
+            GUI.color = new Color(healthCol.r, healthCol.g, healthCol.b, healthCol.a * visAlpha);
+            GUI.DrawTexture(new Rect(x, y, barW * pct, barH), hpTexture);
+        }
 
         GUI.color = prevGuiColor;
     }

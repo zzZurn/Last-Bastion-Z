@@ -36,6 +36,7 @@ public class ResourceManager : MonoBehaviour
 
     public bool SpendGold(int amount)
     {
+        if (amount > 0 && GameManager.IsDevFreeEverything) return true;
         if (Gold < amount) return false;
         Gold -= amount;
         OnResourceChanged?.Invoke();
@@ -44,6 +45,7 @@ public class ResourceManager : MonoBehaviour
 
     public bool SpendMaterials(int amount)
     {
+        if (amount > 0 && GameManager.IsDevFreeEverything) return true;
         if (Materials < amount) return false;
         Materials -= amount;
         OnResourceChanged?.Invoke();
@@ -52,6 +54,7 @@ public class ResourceManager : MonoBehaviour
 
     public bool SpendSpecialMaterials(int amount)
     {
+        if (amount > 0 && GameManager.IsDevFreeEverything) return true;
         if (SpecialMaterials < amount) return false;
         SpecialMaterials -= amount;
         OnResourceChanged?.Invoke();

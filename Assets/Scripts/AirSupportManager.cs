@@ -22,7 +22,10 @@ public class AirSupportManager : MonoBehaviour
     public const float FIGHTER_STRIKE_WIDTH_Z = 4.0f;   // Base 2 blocks across lanes (2 * 2m)
     public const int FIGHTER_SHOTS_PER_BURST = 6;
     public const float FIGHTER_DAMAGE_PER_SHOT = 135f;  // Base Lv.0: 6 * 135 = 810 total AOE dmg per pass
-    public const float FIGHTER_REATTACK_COOLDOWN = 7.0f; // Reduced by 1s (8s -> 7s)
+    public const float MAP_AIRCRAFT_ENTER_X = -126.0f;                           // Far West edge of map (off-screen left)
+    public const float MAP_AIRCRAFT_EXIT_X = 126.0f;                             // Far East edge of map (off-screen right)
+    public const float FIGHTER_CRUISE_SPEED = 48.0f;                             // Fast jet airspeed (m/s) from map edge to target
+    public const float FIGHTER_REATTACK_COOLDOWN = 7.0f;                         // Reduced by 1s (8s -> 7s)
     public const float FIGHTER_FLIGHT_DURATION = 2.4f;
 
     public const int B2_MATERIAL_COST = 450;
@@ -36,9 +39,10 @@ public class AirSupportManager : MonoBehaviour
     public const float B2_BOMB_HALF_EXTENT_Z = B2_STRIKE_WIDTH_Z * 0.5f;         // 5 blocks (10m) across lanes per bomb
     public const float B2_BOMB_DAMAGE = 1100f;                                   // Weaker than ICBM (1,700 dmg)
     public const float B2_COOLDOWN = 30.0f;
-    public const float B2_FLIGHT_DURATION = 4.2f;                                // ~16.7 m/s heavy glide (vs Fighter ~39 m/s)
+    public const float B2_CRUISE_SPEED = 28.0f;                                  // Heavy strategic stealth glide (m/s) from map edge
+    public const float B2_FLIGHT_DURATION = 4.2f;
     public const float B2_BOMB_FALL_DURATION = 0.65f;                            // Smooth falling arc so bomb drop whistle & visual read clearly
-    public const float B2_WINGSPAN = 10.5f;                                      // Larger airframe than Fighter (5.6m)
+    public const float B2_WINGSPAN = 18.0f;                                      // Massive flying-wing bomber (~3.2x wider than Fighter's 5.6m)
 
     public bool IsFighterOwned { get; private set; } = false;
     public int FighterUpgradeLevel { get; private set; } = 0; // 0, 1, or 2
@@ -46,12 +50,31 @@ public class AirSupportManager : MonoBehaviour
     public bool HasFighterTarget { get; private set; } = false;
     public bool IsFighterFlying { get; private set; } = false;
     public float FighterCooldownRemaining { get; private set; } = 0f;
+    public float FighterArrivalETA { get; private set; } = 0f;
     public Vector3 FighterTargetPosition { get; private set; } = Vector3.zero;
+    public Vector3 ActiveFighterStrikeCenter { get; private set; } = Vector3.zero;
 
     public bool IsB2Owned { get; private set; } = false;
     public bool IsTargetingB2 { get; private set; } = false;
     public bool IsB2Flying { get; private set; } = false;
     public float B2CooldownRemaining { get; private set; } = 0f;
+    public float B2ArrivalETA { get; private set; } = 0f;
+    public Vector3 ActiveB2StrikeCenter { get; private set; } = Vector3.zero;
+    public Vector3 LastB2HoverPosition => lastB2HoverPosition;
+
+    public static float EstimateFighterArrivalTime(Vector3 targetPos)
+    {
+        float startX = Mathf.Min(MAP_AIRCRAFT_ENTER_X, targetPos.x - 52f);
+        float firstShotX = targetPos.x - 22f;
+        return Mathf.Max(0.4f, (firstShotX - startX) / FIGHTER_CRUISE_SPEED);
+    }
+
+    public static float EstimateB2ArrivalTime(Vector3 targetPos)
+    {
+        float startX = Mathf.Min(MAP_AIRCRAFT_ENTER_X, targetPos.x - 60f);
+        float firstDropX = (targetPos.x - 8.0f) - 4.2f;
+        return Mathf.Max(0.8f, ((firstDropX - startX) / B2_CRUISE_SPEED) + B2_BOMB_FALL_DURATION);
+    }
 
     private int targetingStartFrame = -1;
     private GameObject fighterReticleObj;
@@ -106,7 +129,7 @@ public class AirSupportManager : MonoBehaviour
 
     public bool CanAffordFighter()
     {
-        if (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode)
+        if (GameManager.IsDevFreeEverything)
         {
             return true;
         }
@@ -123,7 +146,7 @@ public class AirSupportManager : MonoBehaviour
 
     public bool CanAffordB2()
     {
-        if (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode)
+        if (GameManager.IsDevFreeEverything)
         {
             return true;
         }
@@ -143,8 +166,7 @@ public class AirSupportManager : MonoBehaviour
             return false;
         }
 
-        bool isDevFree = GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode;
-        if (!isDevFree)
+        if (!GameManager.IsDevFreeEverything)
         {
             if (ResourceManager.Instance == null ||
                 ResourceManager.Instance.Materials < B2_MATERIAL_COST ||
@@ -219,7 +241,7 @@ public class AirSupportManager : MonoBehaviour
         {
             return false;
         }
-        if (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode)
+        if (GameManager.IsDevFreeEverything)
         {
             return true;
         }
@@ -237,8 +259,7 @@ public class AirSupportManager : MonoBehaviour
 
         int nextLv = FighterUpgradeLevel + 1;
         int cost = GetFighterUpgradeCost(nextLv);
-        bool isDevFree = GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode;
-        if (!isDevFree)
+        if (!GameManager.IsDevFreeEverything)
         {
             if (ResourceManager.Instance == null || !ResourceManager.Instance.SpendMaterials(cost))
             {
@@ -280,8 +301,7 @@ public class AirSupportManager : MonoBehaviour
             return false;
         }
 
-        bool isDevFree = GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode;
-        if (!isDevFree)
+        if (!GameManager.IsDevFreeEverything)
         {
             if (ResourceManager.Instance == null || !ResourceManager.Instance.SpendMaterials(FIGHTER_MATERIAL_COST))
             {
@@ -413,10 +433,12 @@ public class AirSupportManager : MonoBehaviour
         HasFighterTarget = false;
         IsFighterFlying = false;
         FighterCooldownRemaining = 0f;
+        FighterArrivalETA = 0f;
 
         IsTargetingB2 = false;
         IsB2Flying = false;
         B2CooldownRemaining = 0f;
+        B2ArrivalETA = 0f;
 
         if (fighterReticleObj != null) fighterReticleObj.SetActive(false);
         if (fighterLockedZoneObj != null) fighterLockedZoneObj.SetActive(false);
@@ -613,6 +635,7 @@ public class AirSupportManager : MonoBehaviour
     private IEnumerator FighterStrafeCoroutine(Vector3 strikeCenter)
     {
         IsFighterFlying = true;
+        ActiveFighterStrikeCenter = strikeCenter;
         foreach (var p in activePlaneObjs)
         {
             if (p != null) Destroy(p);
@@ -626,42 +649,56 @@ public class AirSupportManager : MonoBehaviour
 
         // Formation offsets per squadron size (1, 2, or 3 planes in delta/echelon formation)
         float[] zOffsets;
-        float[] uLags;
+        float[] timeLags;
         float[] yOffsets;
         if (planeCount == 1)
         {
             zOffsets = new float[] { 0f };
-            uLags = new float[] { 0f };
+            timeLags = new float[] { 0f };
             yOffsets = new float[] { 0f };
         }
         else if (planeCount == 2)
         {
             zOffsets = new float[] { -1.55f, 1.55f };
-            uLags = new float[] { 0f, 0.045f };
+            timeLags = new float[] { 0f, 0.14f };
             yOffsets = new float[] { 0f, 0.55f };
         }
         else
         {
             zOffsets = new float[] { 0f, 2.35f, -2.35f };
-            uLags = new float[] { 0f, 0.055f, 0.055f };
+            timeLags = new float[] { 0f, 0.16f, 0.16f };
             yOffsets = new float[] { 0f, 0.65f, 0.65f };
         }
 
-        float startX = strikeCenter.x - 44f;
-        float endX = strikeCenter.x + 50f;
-        float maxLag = 0f;
+        // Enter from far West edge of map and exit completely past far East edge of map!
+        float startX = Mathf.Min(MAP_AIRCRAFT_ENTER_X, strikeCenter.x - 52f);
+        float endX = Mathf.Max(MAP_AIRCRAFT_EXIT_X, strikeCenter.x + 52f);
+        float flightDuration = Mathf.Max(1.8f, (endX - startX) / FIGHTER_CRUISE_SPEED);
+
+        // Compute normalized shot times directly from world X relative to strikeCenter so strafe hits target accurately from edge entry
+        float[] shotU = new float[FIGHTER_SHOTS_PER_BURST];
+        float firstShotX = strikeCenter.x - 22f;
+        float lastShotX = strikeCenter.x - 4f;
+        for (int s = 0; s < FIGHTER_SHOTS_PER_BURST; s++)
+        {
+            float frac = (FIGHTER_SHOTS_PER_BURST > 1) ? (float)s / (FIGHTER_SHOTS_PER_BURST - 1) : 0.5f;
+            float sx = Mathf.Lerp(firstShotX, lastShotX, frac);
+            shotU[s] = Mathf.Clamp((sx - startX) / (endX - startX), 0.03f, 0.94f);
+        }
+
+        float maxTimeLag = 0f;
         int[] nextShotIndices = new int[planeCount];
 
         for (int p = 0; p < planeCount; p++)
         {
-            if (uLags[p] > maxLag) maxLag = uLags[p];
+            if (timeLags[p] > maxTimeLag) maxTimeLag = timeLags[p];
             GameObject planeObj = BuildFighterPlaneInstance();
             activePlaneObjs.Add(planeObj);
 
             if (planeObj != null)
             {
-                Vector3 initPos = EvaluateFlightPosition(startX, endX, strikeCenter.z + zOffsets[p], yOffsets[p], 0f);
-                Vector3 initNext = EvaluateFlightPosition(startX, endX, strikeCenter.z + zOffsets[p], yOffsets[p], 0.02f);
+                Vector3 initPos = EvaluateFlightPosition(startX, endX, strikeCenter.x, strikeCenter.z + zOffsets[p], yOffsets[p], 0f);
+                Vector3 initNext = EvaluateFlightPosition(startX, endX, strikeCenter.x, strikeCenter.z + zOffsets[p], yOffsets[p], 0.01f);
                 planeObj.transform.position = initPos;
                 Vector3 initDir = initNext - initPos;
                 if (initDir.sqrMagnitude > 0.0001f)
@@ -675,8 +712,9 @@ public class AirSupportManager : MonoBehaviour
             }
         }
 
-        float totalRunTime = FIGHTER_FLIGHT_DURATION * (1f + maxLag);
+        float totalRunTime = flightDuration + maxTimeLag;
         float elapsed = 0f;
+        FighterArrivalETA = Mathf.Max(0f, (firstShotX - startX) / FIGHTER_CRUISE_SPEED);
 
         while (elapsed < totalRunTime)
         {
@@ -686,19 +724,22 @@ public class AirSupportManager : MonoBehaviour
             }
 
             elapsed += Time.deltaTime;
-            float baseU = elapsed / FIGHTER_FLIGHT_DURATION;
+            float leadU = Mathf.Clamp01(elapsed / flightDuration);
+            float leadX = Mathf.Lerp(startX, endX, leadU);
+            FighterArrivalETA = Mathf.Max(0f, (firstShotX - leadX) / FIGHTER_CRUISE_SPEED);
 
             for (int p = 0; p < planeCount; p++)
             {
-                float planeU = Mathf.Clamp01(baseU - uLags[p]);
+                float planeElapsed = elapsed - timeLags[p];
+                float planeU = Mathf.Clamp01(planeElapsed / flightDuration);
                 float planeZ = strikeCenter.z + zOffsets[p];
-                Vector3 pos = EvaluateFlightPosition(startX, endX, planeZ, yOffsets[p], planeU);
-                Vector3 nextPos = EvaluateFlightPosition(startX, endX, planeZ, yOffsets[p], Mathf.Min(1f, planeU + 0.02f));
+                Vector3 pos = EvaluateFlightPosition(startX, endX, strikeCenter.x, planeZ, yOffsets[p], planeU);
+                Vector3 nextPos = EvaluateFlightPosition(startX, endX, strikeCenter.x, planeZ, yOffsets[p], Mathf.Min(1f, planeU + 0.01f));
 
                 GameObject planeObj = (p < activePlaneObjs.Count) ? activePlaneObjs[p] : null;
                 if (planeObj != null)
                 {
-                    if (baseU < uLags[p])
+                    if (planeElapsed < 0f || planeElapsed > flightDuration)
                     {
                         if (planeObj.activeSelf) planeObj.SetActive(false);
                     }
@@ -725,7 +766,7 @@ public class AirSupportManager : MonoBehaviour
                     }
                 }
 
-                while (nextShotIndices[p] < ShotNormalizedTimes.Length && planeU >= ShotNormalizedTimes[nextShotIndices[p]])
+                while (nextShotIndices[p] < shotU.Length && planeElapsed >= 0f && planeU >= shotU[nextShotIndices[p]])
                 {
                     Vector3 muzzlePos = (planeObj != null)
                         ? planeObj.transform.position + planeObj.transform.forward * 1.4f - Vector3.up * 0.25f
@@ -744,6 +785,7 @@ public class AirSupportManager : MonoBehaviour
         }
         activePlaneObjs.Clear();
 
+        FighterArrivalETA = 0f;
         IsFighterFlying = false;
         activeStrikeCoroutine = null;
 
@@ -754,12 +796,12 @@ public class AirSupportManager : MonoBehaviour
         }
     }
 
-    private static Vector3 EvaluateFlightPosition(float startX, float endX, float targetZ, float yOffset, float u)
+    private static Vector3 EvaluateFlightPosition(float startX, float endX, float targetX, float targetZ, float yOffset, float u)
     {
         float x = Mathf.Lerp(startX, endX, u);
-        // Smooth high-to-low dive curve centered over target area, climbing back out to the right
-        float delta = u - 0.45f;
-        float y = 23.0f - 17.2f * Mathf.Exp(-(delta * delta) / 0.065f) + yOffset;
+        // Cruise high from map edge, dive smoothly right over targetX to strafe, then climb back out off far East edge
+        float dx = x - targetX;
+        float y = 23.0f - 17.2f * Mathf.Exp(-(dx * dx) / 720f) + yOffset;
         return new Vector3(x, y, targetZ);
     }
 
@@ -1190,6 +1232,7 @@ public class AirSupportManager : MonoBehaviour
     private IEnumerator B2BombingRunCoroutine(Vector3 strikeCenter)
     {
         IsB2Flying = true;
+        ActiveB2StrikeCenter = strikeCenter;
         if (activeB2PlaneObj != null)
         {
             Destroy(activeB2PlaneObj);
@@ -1203,30 +1246,43 @@ public class AirSupportManager : MonoBehaviour
 
         activeB2PlaneObj = BuildB2BomberInstance();
 
-        AudioSource flyoverAudio = null;
-        float flyoverBaseVol = 0.85f;
+        // Twin-layered 2D flyover AudioSources so the B-2 stealth bomber jet roar is deep, loud, and unmistakable!
+        AudioSource flyoverAudioMain = null;
+        AudioSource flyoverAudioSub = null;
         if (activeB2PlaneObj != null)
         {
             AudioClip whooshClip = AudioHelper.GetClip(SoundEffect.B2FlyoverWhoosh);
             if (whooshClip != null)
             {
-                flyoverAudio = activeB2PlaneObj.AddComponent<AudioSource>();
-                flyoverAudio.clip = whooshClip;
-                flyoverAudio.playOnAwake = false;
-                flyoverAudio.loop = false;
-                flyoverAudio.spatialBlend = 0f;
-                flyoverAudio.volume = flyoverBaseVol;
-                flyoverAudio.Play();
+                flyoverAudioMain = activeB2PlaneObj.AddComponent<AudioSource>();
+                flyoverAudioMain.clip = whooshClip;
+                flyoverAudioMain.playOnAwake = false;
+                flyoverAudioMain.loop = true;
+                flyoverAudioMain.spatialBlend = 0f;
+                flyoverAudioMain.volume = 0.65f;
+                flyoverAudioMain.pitch = 1.0f;
+                flyoverAudioMain.Play();
+
+                flyoverAudioSub = activeB2PlaneObj.AddComponent<AudioSource>();
+                flyoverAudioSub.clip = whooshClip;
+                flyoverAudioSub.playOnAwake = false;
+                flyoverAudioSub.loop = true;
+                flyoverAudioSub.spatialBlend = 0f;
+                flyoverAudioSub.volume = 0.65f;
+                flyoverAudioSub.pitch = 0.84f; // Deep heavy bomber rumble layer
+                flyoverAudioSub.Play();
             }
         }
 
-        float startX = strikeCenter.x - 32f;
-        float endX = strikeCenter.x + 38f;
+        // Enter from far West edge of map and exit completely past far East edge of map!
+        float startX = Mathf.Min(MAP_AIRCRAFT_ENTER_X, strikeCenter.x - 60f);
+        float endX = Mathf.Max(MAP_AIRCRAFT_EXIT_X, strikeCenter.x + 60f);
+        float flightDuration = Mathf.Max(3.5f, (endX - startX) / B2_CRUISE_SPEED);
 
         if (activeB2PlaneObj != null)
         {
-            Vector3 initPos = EvaluateB2FlightPosition(startX, endX, strikeCenter.z, 0f);
-            Vector3 initNext = EvaluateB2FlightPosition(startX, endX, strikeCenter.z, 0.02f);
+            Vector3 initPos = EvaluateB2FlightPosition(startX, endX, strikeCenter.x, strikeCenter.z, 0f);
+            Vector3 initNext = EvaluateB2FlightPosition(startX, endX, strikeCenter.x, strikeCenter.z, 0.01f);
             activeB2PlaneObj.transform.position = initPos;
             Vector3 initDir = initNext - initPos;
             if (initDir.sqrMagnitude > 0.0001f)
@@ -1268,18 +1324,20 @@ public class AirSupportManager : MonoBehaviour
         }
 
         float[] dropU = new float[B2_BOMB_COUNT];
+        float firstDropX = bombTargets[0].x - 4.2f;
         for (int i = 0; i < B2_BOMB_COUNT; i++)
         {
             // Release slightly upstream so bomb glides smoothly onto its 5x4 target point
-            dropU[i] = Mathf.Clamp((bombTargets[i].x - 3.2f - startX) / (endX - startX), 0.05f, 0.90f);
+            dropU[i] = Mathf.Clamp((bombTargets[i].x - 4.2f - startX) / (endX - startX), 0.02f, 0.95f);
         }
 
         // Prevent a zombie on a 5x4 boundary from taking double bomb damage so max dmg stays strictly below ICBM (1,700)
         HashSet<Zombie> damagedThisPass = new HashSet<Zombie>();
         int nextBombIdx = 0;
         float elapsed = 0f;
+        B2ArrivalETA = Mathf.Max(0f, ((firstDropX - startX) / B2_CRUISE_SPEED) + B2_BOMB_FALL_DURATION);
 
-        while (elapsed < B2_FLIGHT_DURATION)
+        while (elapsed < flightDuration)
         {
             if (GameManager.Instance == null || GameManager.Instance.CurrentState != GameManager.GameState.Combat)
             {
@@ -1287,9 +1345,11 @@ public class AirSupportManager : MonoBehaviour
             }
 
             elapsed += Time.deltaTime;
-            float u = Mathf.Clamp01(elapsed / B2_FLIGHT_DURATION);
-            Vector3 pos = EvaluateB2FlightPosition(startX, endX, strikeCenter.z, u);
-            Vector3 nextPos = EvaluateB2FlightPosition(startX, endX, strikeCenter.z, Mathf.Min(1f, u + 0.02f));
+            float u = Mathf.Clamp01(elapsed / flightDuration);
+            Vector3 pos = EvaluateB2FlightPosition(startX, endX, strikeCenter.x, strikeCenter.z, u);
+            Vector3 nextPos = EvaluateB2FlightPosition(startX, endX, strikeCenter.x, strikeCenter.z, Mathf.Min(1f, u + 0.01f));
+
+            B2ArrivalETA = Mathf.Max(0f, ((firstDropX - pos.x) / B2_CRUISE_SPEED) + B2_BOMB_FALL_DURATION);
 
             if (activeB2PlaneObj != null)
             {
@@ -1302,17 +1362,20 @@ public class AirSupportManager : MonoBehaviour
                     activeB2PlaneObj.transform.rotation = lookRot * Quaternion.Euler(0f, 0f, rollAngle);
                 }
 
-                if (flyoverAudio != null && flyoverAudio.isPlaying)
-                {
-                    float fadeOut = (u >= 0.78f) ? Mathf.InverseLerp(1.0f, 0.78f, u) : 1.0f;
-                    flyoverAudio.volume = flyoverBaseVol * fadeOut;
-                }
+                // Swell twin-layer engine roar to 100% peak as the B-2 crosses the battlefield, then fade smoothly off East edge
+                float distToTarget = Mathf.Abs(pos.x - strikeCenter.x);
+                float proximityVol = Mathf.Lerp(1.0f, 0.55f, Mathf.Clamp01(distToTarget / 90f));
+                float edgeFadeIn = Mathf.Clamp01(u / 0.08f);
+                float edgeFadeOut = (u >= 0.84f) ? Mathf.InverseLerp(1.0f, 0.84f, u) : 1.0f;
+                float layerVol = Mathf.Clamp01(proximityVol * edgeFadeIn * edgeFadeOut);
+                if (flyoverAudioMain != null && flyoverAudioMain.isPlaying) flyoverAudioMain.volume = layerVol;
+                if (flyoverAudioSub != null && flyoverAudioSub.isPlaying) flyoverAudioSub.volume = layerVol * 0.95f;
             }
 
             while (nextBombIdx < B2_BOMB_COUNT && u >= dropU[nextBombIdx])
             {
                 Vector3 releasePos = (activeB2PlaneObj != null)
-                    ? activeB2PlaneObj.transform.position - Vector3.up * 0.45f
+                    ? activeB2PlaneObj.transform.position - Vector3.up * 0.65f
                     : pos;
                 StartCoroutine(DropAndDetonateB2BombCoroutine(releasePos, bombTargets[nextBombIdx], damagedThisPass, sectorMarkers[nextBombIdx]));
                 nextBombIdx++;
@@ -1327,16 +1390,17 @@ public class AirSupportManager : MonoBehaviour
             activeB2PlaneObj = null;
         }
 
+        B2ArrivalETA = 0f;
         IsB2Flying = false;
         activeB2Coroutine = null;
     }
 
-    private static Vector3 EvaluateB2FlightPosition(float startX, float endX, float targetZ, float u)
+    private static Vector3 EvaluateB2FlightPosition(float startX, float endX, float targetX, float targetZ, float u)
     {
         float x = Mathf.Lerp(startX, endX, u);
-        // Smooth, wide high-altitude stealth glide (lower peak acceleration than Fighter)
-        float delta = u - 0.46f;
-        float y = 22.5f - 8.0f * Mathf.Exp(-(delta * delta) / 0.14f);
+        // Smooth, imposing high-altitude stealth glide dipping gently over targetX
+        float dx = x - targetX;
+        float y = 23.5f - 7.5f * Mathf.Exp(-(dx * dx) / 1600f);
         return new Vector3(x, y, targetZ);
     }
 
@@ -1369,7 +1433,7 @@ public class AirSupportManager : MonoBehaviour
             dropAudioSrc.playOnAwake = false;
             dropAudioSrc.loop = false;
             dropAudioSrc.spatialBlend = 0f;
-            dropAudioSrc.volume = 0.78f;
+            dropAudioSrc.volume = 1.0f;
             dropAudioSrc.pitch = Random.Range(0.96f, 1.05f);
             dropAudioSrc.Play();
             activeB2BombObjs.Add(dropAudioObj);
@@ -1560,13 +1624,13 @@ public class AirSupportManager : MonoBehaviour
             {
                 ApplyB2Materials(renderers);
                 OrientAndScaleB2(pivot, modelInstance, B2_WINGSPAN, out Vector3 leftWingTipLocal, out Vector3 rightWingTipLocal);
-                AttachWingtipWindTrails(root, leftWingTipLocal, rightWingTipLocal, startWidth: 0.28f, trailTime: 0.72f);
+                AttachWingtipWindTrails(root, leftWingTipLocal, rightWingTipLocal, startWidth: 0.44f, trailTime: 1.05f);
                 return root;
             }
         }
 
         BuildProceduralB2Fallback(root);
-        AttachWingtipWindTrails(root, new Vector3(-B2_WINGSPAN * 0.49f, 0f, -1.8f), new Vector3(B2_WINGSPAN * 0.49f, 0f, -1.8f), startWidth: 0.28f, trailTime: 0.72f);
+        AttachWingtipWindTrails(root, new Vector3(-B2_WINGSPAN * 0.49f, 0f, -2.8f), new Vector3(B2_WINGSPAN * 0.49f, 0f, -2.8f), startWidth: 0.44f, trailTime: 1.05f);
         return root;
     }
 
@@ -1663,27 +1727,78 @@ public class AirSupportManager : MonoBehaviour
     {
         Shader litShader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
         Material stealthMat = new Material(litShader) { color = new Color(0.11f, 0.12f, 0.15f) };
+        float s = B2_WINGSPAN / 10.5f;
 
         var centerBody = GameObject.CreatePrimitive(PrimitiveType.Cube);
         centerBody.transform.SetParent(parent.transform, false);
-        centerBody.transform.localScale = new Vector3(2.8f, 0.55f, 4.4f);
+        centerBody.transform.localScale = new Vector3(2.8f * s, 0.55f * s, 4.4f * s);
         Destroy(centerBody.GetComponent<Collider>());
         centerBody.GetComponent<Renderer>().sharedMaterial = stealthMat;
 
         var leftWing = GameObject.CreatePrimitive(PrimitiveType.Cube);
         leftWing.transform.SetParent(parent.transform, false);
-        leftWing.transform.localPosition = new Vector3(-2.8f, 0f, -0.7f);
+        leftWing.transform.localPosition = new Vector3(-2.8f * s, 0f, -0.7f * s);
         leftWing.transform.localRotation = Quaternion.Euler(0f, 32f, 0f);
-        leftWing.transform.localScale = new Vector3(5.6f, 0.22f, 2.2f);
+        leftWing.transform.localScale = new Vector3(5.6f * s, 0.22f * s, 2.2f * s);
         Destroy(leftWing.GetComponent<Collider>());
         leftWing.GetComponent<Renderer>().sharedMaterial = stealthMat;
 
         var rightWing = GameObject.CreatePrimitive(PrimitiveType.Cube);
         rightWing.transform.SetParent(parent.transform, false);
-        rightWing.transform.localPosition = new Vector3(2.8f, 0f, -0.7f);
+        rightWing.transform.localPosition = new Vector3(2.8f * s, 0f, -0.7f * s);
         rightWing.transform.localRotation = Quaternion.Euler(0f, -32f, 0f);
-        rightWing.transform.localScale = new Vector3(5.6f, 0.22f, 2.2f);
+        rightWing.transform.localScale = new Vector3(5.6f * s, 0.22f * s, 2.2f * s);
         Destroy(rightWing.GetComponent<Collider>());
         rightWing.GetComponent<Renderer>().sharedMaterial = stealthMat;
+    }
+
+    private GUIStyle _etaBadgeStyle;
+
+    void OnGUI()
+    {
+        if (GameManager.Instance == null || GameManager.Instance.CurrentState != GameManager.GameState.Combat) return;
+        Camera cam = Camera.main;
+        if (cam == null) return;
+
+        bool showB2Eta = IsB2Flying && B2ArrivalETA > 0.05f;
+        bool showFighterEta = IsFighterFlying && FighterArrivalETA > 0.05f;
+        if (!showB2Eta && !showFighterEta) return;
+
+        if (_etaBadgeStyle == null)
+        {
+            _etaBadgeStyle = new GUIStyle(GUI.skin.box)
+            {
+                fontSize = 13,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter
+            };
+            _etaBadgeStyle.normal.textColor = Color.white;
+        }
+
+        if (showB2Eta)
+        {
+            Vector3 scr = cam.WorldToScreenPoint(ActiveB2StrikeCenter + Vector3.up * 1.6f);
+            if (scr.z > 0f)
+            {
+                float gx = scr.x - 95f;
+                float gy = Screen.height - scr.y - 26f;
+                GUI.backgroundColor = new Color(0.95f, 0.38f, 0.08f, 0.92f);
+                GUI.Box(new Rect(gx, gy, 190f, 26f), $"💣 B-2 INBOUND: {B2ArrivalETA:0.0}s", _etaBadgeStyle);
+                GUI.backgroundColor = Color.white;
+            }
+        }
+
+        if (showFighterEta)
+        {
+            Vector3 scr = cam.WorldToScreenPoint(ActiveFighterStrikeCenter + Vector3.up * 1.4f);
+            if (scr.z > 0f)
+            {
+                float gx = scr.x - 90f;
+                float gy = Screen.height - scr.y - 26f;
+                GUI.backgroundColor = new Color(0.14f, 0.68f, 0.95f, 0.92f);
+                GUI.Box(new Rect(gx, gy, 180f, 26f), $"✈️ CAS INBOUND: {FighterArrivalETA:0.0}s", _etaBadgeStyle);
+                GUI.backgroundColor = Color.white;
+            }
+        }
     }
 }

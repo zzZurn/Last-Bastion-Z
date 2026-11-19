@@ -6,6 +6,7 @@ public class UIManager : MonoBehaviour
 
     private GUIStyle headerStyle;
     private GUIStyle subHeaderStyle;
+    private GUIStyle rewardCenteredStyle;
     private GUIStyle buttonStyle;
     private GUIStyle smallButtonStyle;
     private GUIStyle boxStyle;
@@ -217,7 +218,7 @@ public class UIManager : MonoBehaviour
 
         if (isDevPanelOpen && GameManager.Instance != null)
         {
-            float devH = GameManager.Instance.isDevModeUnlocked ? 495f : 175f;
+            float devH = GameManager.Instance.isDevModeUnlocked ? 520f : 175f;
             Rect devPanelRect = new Rect(Screen.width - 355f, 118f, 345f, devH);
             if (devPanelRect.Contains(mouseGuiPos)) return true;
         }
@@ -239,7 +240,7 @@ public class UIManager : MonoBehaviour
         {
             if (GameManager.Instance.CurrentState == GameManager.GameState.Reward)
             {
-                Rect rewardDialog = new Rect(Screen.width / 2f - 220f, Screen.height / 2f - 110f, 440f, 220f);
+                Rect rewardDialog = new Rect(Screen.width / 2f - 270f, Screen.height / 2f - 120f, 540f, 240f);
                 if (rewardDialog.Contains(mouseGuiPos)) return true;
             }
             else if (GameManager.Instance.CurrentState == GameManager.GameState.RouteSelection)
@@ -291,6 +292,15 @@ public class UIManager : MonoBehaviour
             alignment = TextAnchor.MiddleLeft
         };
         subHeaderStyle.normal.textColor = new Color(1.0f, 0.75f, 0.2f); // Wasteland amber
+
+        rewardCenteredStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 14,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.MiddleCenter,
+            wordWrap = true
+        };
+        rewardCenteredStyle.normal.textColor = new Color(1.0f, 0.78f, 0.22f);
 
         resourceStyle = new GUIStyle(GUI.skin.box)
         {
@@ -910,13 +920,17 @@ public class UIManager : MonoBehaviour
             GUI.backgroundColor = isInspected ? new Color(0.3f, 0.7f, 1.0f) : Color.white;
         }
 
-        int reqStage = (type == Building.BuildingType.MissileFoundry) ? 15 : ((type == Building.BuildingType.LightTankFactory) ? 10 : 5);
+        int reqStage = (type == Building.BuildingType.AirBase) ? 30
+            : ((type == Building.BuildingType.MissileFoundry) ? 15
+            : ((type == Building.BuildingType.LightTankFactory) ? 10 : 5));
         int upgLv = Building.GetUpgradeLevel(type);
         string lvBadge = (upgLv > 0) ? $" ★{upgLv}" : "";
 
         int maxLimit = Building.GetMaxBuildingPlacementLimit(type);
         int activeCount = Building.GetActiveBuildingCount(type);
-        bool isLimitReached = (maxLimit > 0 && activeCount >= maxLimit);
+        bool isUncond = GameManager.IsDevUnconditional;
+        bool isFreeDev = GameManager.IsDevFreeEverything;
+        bool isLimitReached = !isUncond && (maxLimit > 0 && activeCount >= maxLimit);
         string limitTag = (maxLimit > 0) ? $" [{activeCount}/{maxLimit}]" : "";
 
         int specCost = Building.GetSpecialMaterialCost(type);
@@ -925,7 +939,7 @@ public class UIManager : MonoBehaviour
             : ((matCost > 0) ? $"({goldCost}G / {matCost}M)" : $"({goldCost}G / +10 SUP)");
         string subText = !isUnlocked
             ? $"🔒 After Stg {reqStage}"
-            : (isLimitReached ? $"⛔ MAX {maxLimit} REACHED" : (storedCount > 0 ? "★ FREE Stock" : costLabel));
+            : (isLimitReached ? $"⛔ MAX {maxLimit} REACHED" : (isFreeDev ? "★ FREE [DEV]" : (storedCount > 0 ? "★ FREE Stock" : costLabel)));
         if (GUI.Button(new Rect(x + badgeW + 3f, y, btnW, btnH), $"{shortName}{lvBadge}{limitTag}\n{subText}", buttonStyle))
         {
             inspectedType = type;
@@ -974,7 +988,7 @@ public class UIManager : MonoBehaviour
 
         bool fighterOwned = (AirSupportManager.Instance != null && AirSupportManager.Instance.IsFighterOwned);
         bool canAffordFighter = (AirSupportManager.Instance != null && AirSupportManager.Instance.CanAffordFighter());
-        bool isDevFree = (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode);
+        bool isDevFree = GameManager.IsDevFreeEverything;
         int fighterLv = (AirSupportManager.Instance != null) ? AirSupportManager.Instance.FighterUpgradeLevel : 0;
         int fighterW = (AirSupportManager.Instance != null) ? AirSupportManager.Instance.GetFighterBlockWidth() : 2;
         int fighterL = (AirSupportManager.Instance != null) ? AirSupportManager.Instance.GetFighterBlockLength() : 5;
@@ -1217,7 +1231,7 @@ public class UIManager : MonoBehaviour
                 int nextLv = fighterLv + 1;
                 int matCost = (air != null) ? air.GetFighterUpgradeCost(nextLv) : 100;
                 bool canAfford = (air != null && air.CanUpgradeFighter());
-                bool isFreeDev = (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode);
+                bool isFreeDev = GameManager.IsDevFreeEverything;
 
                 GUI.color = new Color(0.75f, 0.95f, 1.0f);
                 GUI.Label(new Rect(0f, curY, contentW, upgPreviewH), upgPreviewText, descBodyStyle);
@@ -1335,7 +1349,7 @@ public class UIManager : MonoBehaviour
                 int nextLv = curLv + 1;
                 Building.GetUpgradeCost(inspectedType, nextLv, out int gCost, out int mCost);
                 bool canAfford = Building.CanAffordUpgrade(inspectedType);
-                bool isFreeDev = (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode);
+                bool isFreeDev = GameManager.IsDevFreeEverything;
 
                 GUI.backgroundColor = canAfford ? new Color(0.2f, 0.85f, 0.35f) : new Color(0.45f, 0.25f, 0.25f);
                 string costStr = isFreeDev ? "FREE [DEV]" : $"{gCost}G / {mCost}M";
@@ -1538,12 +1552,17 @@ public class UIManager : MonoBehaviour
                 break;
 
             case Building.BuildingType.AirBase:
+                bool airUnlocked = Building.IsBuildingUnlocked(Building.BuildingType.AirBase);
+                string airUnlockStatus = airUnlocked
+                    ? "<color=#55ff55>🔓 UNLOCKED (Cleared Stage 30+ / Apocalypse City)</color>\n"
+                    : "<color=#ffcc44>🔒 LOCKED: Cleared Stage 30+ (Stage 31+)</color>\n";
                 int airBaseActive = Building.GetActiveBuildingCount(Building.BuildingType.AirBase);
                 string airBaseCapNotice = (airBaseActive >= 1)
                     ? "<color=#ff5555>• Placement Limit: 1/1 Placed (MAX REACHED)</color>\n"
                     : "• Placement Limit: Max 1 Base on Map (0/1)\n";
                 title = "🛫 AIR BASE (Air Traffic Control)";
                 body =
+                    airUnlockStatus +
                     stockNotice +
                     airBaseCapNotice +
                     "• Cost: 1,500 Gold, 500 Materials | SUP: 0 | Size: 4x5\n" +
@@ -1608,7 +1627,9 @@ public class UIManager : MonoBehaviour
             else if (air.IsFighterFlying)
             {
                 GUI.backgroundColor = new Color(1.0f, 0.72f, 0.18f, 0.96f);
-                statusLine = $"🔥 {fPlanes}x STRAFING\n(Click to Move)";
+                statusLine = (air.FighterArrivalETA > 0.05f)
+                    ? $"✈️ INBOUND: {air.FighterArrivalETA:0.0}s\n(Click to Move)"
+                    : $"🔥 {fPlanes}x STRAFING\n(Click to Move)";
             }
             else
             {
@@ -1647,7 +1668,9 @@ public class UIManager : MonoBehaviour
             else if (air.IsB2Flying)
             {
                 GUI.backgroundColor = new Color(1.0f, 0.65f, 0.15f, 0.96f);
-                b2StatusLine = $"💣 CARPET BOMBING\n⏳ CD: {air.B2CooldownRemaining:0.0}s";
+                b2StatusLine = (air.B2ArrivalETA > 0.05f)
+                    ? $"✈️ B-2 ETA: {air.B2ArrivalETA:0.0}s\n⏳ CD: {air.B2CooldownRemaining:0.0}s"
+                    : $"💣 CARPET BOMBING\n⏳ CD: {air.B2CooldownRemaining:0.0}s";
             }
             else if (air.B2CooldownRemaining > 0f)
             {
@@ -1668,9 +1691,10 @@ public class UIManager : MonoBehaviour
 
             if (air.IsTargetingB2)
             {
+                float estEta = AirSupportManager.EstimateB2ArrivalTime(air.LastB2HoverPosition);
                 GUI.backgroundColor = new Color(0.88f, 0.28f, 0.10f, 0.92f);
-                GUI.Box(new Rect(Screen.width / 2f - 290f, boxY + boxH + 8f, 580f, 34f),
-                    $"💣 B-2 ({AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS}, ~1.7s Lead) — Aim Ahead of Moving Hordes! | L-Click: Bomb | R-Click: Cancel",
+                GUI.Box(new Rect(Screen.width / 2f - 295f, boxY + boxH + 8f, 590f, 34f),
+                    $"💣 B-2 ({AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS}, ETA ~{estEta:0.0}s from West Edge) — Aim Ahead! | L-Click: Bomb | R-Click: Cancel",
                     subHeaderStyle);
                 GUI.backgroundColor = Color.white;
             }
@@ -1679,8 +1703,8 @@ public class UIManager : MonoBehaviour
 
     void DrawRewardUI()
     {
-        float dialogW = 460f;
-        float dialogH = 225f;
+        float dialogW = 540f;
+        float dialogH = 240f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
         float dialogY = Screen.height / 2f - dialogH / 2f;
 
@@ -1692,14 +1716,24 @@ public class UIManager : MonoBehaviour
         int goldReward = ResourceManager.GetStageGoldReward(day);
         int matReward = ResourceManager.GetStageMaterialReward(day);
 
-        GUI.Label(new Rect(dialogX + 20, dialogY + 45, dialogW - 40, 30), $"Stage {day} Victory! Defense Line Held.", headerStyle);
+        GUI.Label(new Rect(dialogX + 20, dialogY + 42, dialogW - 40, 32), $"Stage {day} Victory! Defense Line Held.", headerStyle);
+
         string bonusTag = isElite
-            ? " (2x ELITE BONUS!)"
-            : (day == 15 ? " (+200G WAVE 15 MILESTONE BONUS!)" : (day <= 4 ? " (+44% EARLY BONUS!)" : ""));
-        GUI.Label(new Rect(dialogX + 20, dialogY + 85, dialogW - 40, 25), $"Rewards Earned: +{goldReward} Gold, +{matReward} Materials{bonusTag}", subHeaderStyle);
+            ? "(2x ELITE BONUS!)"
+            : (day == 15 ? "(+200G WAVE 15 MILESTONE BONUS!)" : (day <= 4 ? "(+44% EARLY BONUS!)" : ""));
+
+        GUI.Label(new Rect(dialogX + 20, dialogY + 82, dialogW - 40, 28), $"Rewards Earned: +{goldReward} Gold, +{matReward} Materials", rewardCenteredStyle);
+
+        if (!string.IsNullOrEmpty(bonusTag))
+        {
+            Color prevC = GUI.color;
+            GUI.color = new Color(0.45f, 1.0f, 0.55f);
+            GUI.Label(new Rect(dialogX + 20, dialogY + 112, dialogW - 40, 28), bonusTag, rewardCenteredStyle);
+            GUI.color = prevC;
+        }
 
         GUI.backgroundColor = Color.cyan;
-        if (GUI.Button(new Rect(dialogX + 70, dialogY + 140, dialogW - 140, 48), "PROCEED TO NEXT STAGE ➡️", buttonStyle))
+        if (GUI.Button(new Rect(dialogX + 90, dialogY + 158, dialogW - 180, 48), "PROCEED TO NEXT STAGE ➡️", buttonStyle))
         {
             GameManager.Instance.ProceedToNextDay();
         }
@@ -1748,13 +1782,10 @@ public class UIManager : MonoBehaviour
             for (int i = 0; i < dilemmaSys.currentEvent.choices.Length; i++)
             {
                 var choice = dilemmaSys.currentEvent.choices[i];
-                bool canAfford = true;
-                if (ResourceManager.Instance != null)
+                bool canAfford = GameManager.IsDevFreeEverything;
+                if (!canAfford && ResourceManager.Instance != null)
                 {
-                    if (ResourceManager.Instance.Gold < choice.goldCost || ResourceManager.Instance.Materials < choice.materialCost)
-                    {
-                        canAfford = false;
-                    }
+                    canAfford = ResourceManager.Instance.Gold >= choice.goldCost && ResourceManager.Instance.Materials >= choice.materialCost;
                 }
 
                 GUI.backgroundColor = canAfford ? new Color(0.25f, 0.75f, 0.95f) : new Color(0.5f, 0.5f, 0.5f);
@@ -1831,7 +1862,8 @@ public class UIManager : MonoBehaviour
 
     void DrawRouteSelectionUI()
     {
-        if (GameManager.Instance != null && GameManager.Instance.CurrentDay >= 30)
+        if (GameManager.Instance != null &&
+            (GameManager.Instance.CurrentDay == 30 || GameManager.Instance.CurrentDay >= GameManager.Instance.maxStages))
         {
             DrawWave30MandatoryRouteUI();
             return;
@@ -1883,8 +1915,14 @@ public class UIManager : MonoBehaviour
         float dialogX = Screen.width / 2f - dialogW / 2f;
         float dialogY = Screen.height / 2f - dialogH / 2f;
 
+        int curDay = GameManager.Instance != null ? GameManager.Instance.CurrentDay : 30;
+        bool isStage30Gatekeeper = (curDay == 30);
+
         GUI.backgroundColor = new Color(0.45f, 0.08f, 0.08f, 0.96f);
-        GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), "⚠️ FINAL STAGE 30 — MANDATORY ELITE ASSAULT", boxStyle);
+        string boxHeader = isStage30Gatekeeper
+            ? "⚠️ STAGE 30 GATEKEEPER — MANDATORY ELITE ASSAULT"
+            : $"⚠️ FINAL STAGE {curDay} — MANDATORY ELITE ASSAULT";
+        GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), boxHeader, boxStyle);
         GUI.backgroundColor = Color.white;
 
         GUIStyle climaxTitleStyle = new GUIStyle(GUI.skin.label)
@@ -1895,7 +1933,10 @@ public class UIManager : MonoBehaviour
             wordWrap = false
         };
         climaxTitleStyle.normal.textColor = new Color(1f, 0.85f, 0.2f);
-        GUI.Label(new Rect(dialogX + 15, dialogY + 38, dialogW - 30, 28), "⚡ FINAL CLIMAX: SURVIVE THE ULTIMATE HORDE INVASION", climaxTitleStyle);
+        string subTitle = isStage30Gatekeeper
+            ? "⚡ CLEAR STAGE 30 TO UNLOCK AIR BASE & APOCALYPSE CITY!"
+            : "⚡ FINAL CLIMAX: SURVIVE THE ULTIMATE HORDE INVASION";
+        GUI.Label(new Rect(dialogX + 15, dialogY + 38, dialogW - 30, 28), subTitle, climaxTitleStyle);
 
         GUIStyle bodyStyle = new GUIStyle(descBodyStyle)
         {
@@ -1904,12 +1945,16 @@ public class UIManager : MonoBehaviour
             wordWrap = true
         };
 
+        string goalLine = isStage30Gatekeeper
+            ? "• <b>Unlock Reward</b>: Unlocks <b>Air Base (Fighter & B-2)</b> & <b>Post-Apocalypse City (Stages 31–40)</b>!"
+            : "• <b>Final Stand</b>: Eliminate all hostiles to win the 40-Stage Campaign!";
+
         string alertText =
-            "<color=#ff6666><b>CRITICAL ALERT: WAVE 30 FORCES ELITE ASSAULT MODE!</b></color>\n\n" +
+            $"<color=#ff6666><b>CRITICAL ALERT: WAVE {curDay} FORCES ELITE ASSAULT MODE!</b></color>\n\n" +
             "• <b>2X Elite Replacement Rate</b>: 36% of zombies are upgraded to Elite!\n" +
             "• <b>+20% Surge Horde Size</b>: +20% more zombies swarming all lanes!\n" +
             "• <b>Tyrant Boss Alpha</b>: Bosses will ONE-SHOT SMG troopers!\n" +
-            "• <b>Final Stand</b>: Eliminate all hostiles to win the campaign!";
+            goalLine;
 
         GUI.Label(new Rect(dialogX + 30, dialogY + 76, dialogW - 60, 155), alertText, bodyStyle);
 
@@ -2070,7 +2115,7 @@ public class UIManager : MonoBehaviour
     {
         float panelW = 345f;
         bool unlocked = GameManager.Instance.isDevModeUnlocked;
-        float panelH = unlocked ? 560f : 175f;
+        float panelH = unlocked ? 520f : 175f;
         float panelX = Screen.width - panelW - 10f;
         float panelY = 118f;
 
@@ -2127,12 +2172,24 @@ public class UIManager : MonoBehaviour
         // 2. UNLOCKED STATE -> FULL DEV TOOLS & UNCONDITIONAL BUILDING SPAWNER
         bool uncond = GameManager.Instance.isDevUnconditionalMode;
         GUI.backgroundColor = uncond ? new Color(0.2f, 0.9f, 0.4f) : new Color(0.5f, 0.5f, 0.5f);
-        if (GUI.Button(new Rect(curX, curY, innerW, 32f), uncond ? "🔓 UNCONDITIONAL BUILD: ON (Free / All Unlocked)" : "🔒 UNCONDITIONAL BUILD: OFF", buttonStyle))
+        if (GUI.Button(new Rect(curX, curY, innerW, 30f), uncond ? "🔓 UNCONDITIONAL BUILD: ON (All Unlocked)" : "🔒 UNCONDITIONAL BUILD: OFF", buttonStyle))
         {
             GameManager.Instance.isDevUnconditionalMode = !GameManager.Instance.isDevUnconditionalMode;
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
         }
         GUI.backgroundColor = Color.white;
-        curY += 38f;
+        curY += 34f;
+
+        // Free Everything Toggle (All purchases, upgrades, repairs, aircraft & event costs = 0)
+        bool freeAll = GameManager.Instance.isDevFreeEverything;
+        GUI.backgroundColor = freeAll ? new Color(0.15f, 0.85f, 0.78f) : new Color(0.5f, 0.5f, 0.5f);
+        if (GUI.Button(new Rect(curX, curY, innerW, 30f), freeAll ? "🎁 FREE EVERYTHING: ON (All Costs = 0)" : "💰 FREE EVERYTHING: OFF (Normal Costs)", buttonStyle))
+        {
+            GameManager.Instance.isDevFreeEverything = !GameManager.Instance.isDevFreeEverything;
+            AudioHelper.PlaySound(SoundEffect.ButtonClick);
+        }
+        GUI.backgroundColor = Color.white;
+        curY += 36f;
 
         // Dynamic list of ALL Building.BuildingType values (automatically includes future buildings!)
         GUI.Label(new Rect(curX, curY, innerW, 20f), "🏗️ Place Any Base (Current & Future):", descTitleStyle);
@@ -2220,18 +2277,20 @@ public class UIManager : MonoBehaviour
             GameManager.Instance.DevSetStage(16);
         curY += 28f;
 
-        // Row C2: High Stage Switcher (Stg 20, 24, 27, 29, 30 Climax)
+        // Row C2: High Stage Switcher (Stg 20, 30, 31 City/AirBase, 35, 40 Climax)
         if (GUI.Button(new Rect(curX, curY, sBtnW, 26f), "Stg 20", smallButtonStyle))
             GameManager.Instance.DevSetStage(20);
-        if (GUI.Button(new Rect(curX + (sBtnW + 4f) * 1, curY, sBtnW, 26f), "Stg 24", smallButtonStyle))
-            GameManager.Instance.DevSetStage(24);
-        if (GUI.Button(new Rect(curX + (sBtnW + 4f) * 2, curY, sBtnW, 26f), "Stg 27", smallButtonStyle))
-            GameManager.Instance.DevSetStage(27);
-        if (GUI.Button(new Rect(curX + (sBtnW + 4f) * 3, curY, sBtnW, 26f), "Stg 29", smallButtonStyle))
-            GameManager.Instance.DevSetStage(29);
-        GUI.backgroundColor = new Color(1f, 0.4f, 0.4f);
-        if (GUI.Button(new Rect(curX + (sBtnW + 4f) * 4, curY, sBtnW, 26f), "Stg 30", smallButtonStyle))
+        if (GUI.Button(new Rect(curX + (sBtnW + 4f) * 1, curY, sBtnW, 26f), "Stg 30", smallButtonStyle))
             GameManager.Instance.DevSetStage(30);
+        GUI.backgroundColor = new Color(1.0f, 0.65f, 0.25f);
+        if (GUI.Button(new Rect(curX + (sBtnW + 4f) * 2, curY, sBtnW, 26f), "Stg 31", smallButtonStyle))
+            GameManager.Instance.DevSetStage(31);
+        GUI.backgroundColor = Color.white;
+        if (GUI.Button(new Rect(curX + (sBtnW + 4f) * 3, curY, sBtnW, 26f), "Stg 35", smallButtonStyle))
+            GameManager.Instance.DevSetStage(35);
+        GUI.backgroundColor = new Color(1f, 0.4f, 0.4f);
+        if (GUI.Button(new Rect(curX + (sBtnW + 4f) * 4, curY, sBtnW, 26f), "Stg 40", smallButtonStyle))
+            GameManager.Instance.DevSetStage(40);
         GUI.backgroundColor = Color.white;
         curY += 30f;
 
@@ -2249,6 +2308,15 @@ public class UIManager : MonoBehaviour
         if (GUI.Button(new Rect(curX + bBtnW + 6f, curY, bBtnW, 28f), "🛡️ Heal Fortress Full", smallButtonStyle))
         {
             FortressCore.Instance?.ResetHealth();
+        }
+        GUI.backgroundColor = Color.white;
+        curY += 32f;
+
+        // Row E: Restart Current Wave back to Planning phase
+        GUI.backgroundColor = new Color(0.95f, 0.62f, 0.15f);
+        if (GUI.Button(new Rect(curX, curY, innerW, 30f), $"🔄 Restart Wave -> Planning (Stg {GameManager.Instance.CurrentDay})", buttonStyle))
+        {
+            GameManager.Instance.DevRestartCurrentWave();
         }
         GUI.backgroundColor = Color.white;
     }

@@ -29,6 +29,8 @@ public class Building : MonoBehaviour
     private float turretFireTimer;
     private Transform turretMountTransform;
     private bool isActive = true;
+    private float hpBarVisibleTimer = 0f;
+    private const float HP_BAR_DISPLAY_DURATION = 3.0f;
     private static Texture2D hpTexture;
 
     void Awake()
@@ -115,11 +117,21 @@ public class Building : MonoBehaviour
     {
         if (currentHealth <= 0f) return;
         currentHealth -= dmg;
+        hpBarVisibleTimer = HP_BAR_DISPLAY_DURATION;
         AudioHelper.PlaySound(SoundEffect.Hit, 0.4f);
         if (currentHealth <= 0f)
         {
             Demolish();
         }
+    }
+
+    public void ResetForWaveRestart()
+    {
+        currentHealth = maxHealth;
+        hpBarVisibleTimer = 0f;
+        spawnedCount = 0;
+        spawnTimer = (type == BuildingType.MissileFoundry) ? 1.5f : spawnInterval;
+        turretFireTimer = 0f;
     }
 
     public void Demolish()
@@ -167,7 +179,7 @@ public class Building : MonoBehaviour
             }
         }
 
-        if (currentHealth >= maxHealth || currentHealth <= 0f) return;
+        if (hpBarVisibleTimer <= 0f || currentHealth <= 0f) return;
 
         float yOffset = (type == BuildingType.FrontlineSniperTower) ? 3.8f : ((type == BuildingType.LightTankFactory || type == BuildingType.MissileFoundry || type == BuildingType.AirBase) ? 3.4f : 1.8f);
         Vector3 worldPos = transform.position + Vector3.up * yOffset;
@@ -198,6 +210,11 @@ public class Building : MonoBehaviour
 
     void Update()
     {
+        if (hpBarVisibleTimer > 0f)
+        {
+            hpBarVisibleTimer -= Time.deltaTime;
+        }
+
         if (!isActive) return;
         if (GameManager.Instance == null) return;
         if (GameManager.Instance.CurrentState != GameManager.GameState.Combat) return;
@@ -682,6 +699,7 @@ public class Building : MonoBehaviour
     /// Special Force Depot unlocks after Stage 5 (Stage 6+, CurrentDay > 5).
     /// Light Tank Factory unlocks after Stage 10 (Stage 11+, CurrentDay > 10).
     /// Missile Foundry unlocks after Stage 15 (Stage 16+, CurrentDay > 15).
+    /// Air Base unlocks after Stage 30 (Stage 31+, CurrentDay > 30).
     /// </summary>
     public static bool IsBuildingUnlocked(BuildingType t)
     {
@@ -701,6 +719,10 @@ public class Building : MonoBehaviour
         if (t == BuildingType.MissileFoundry)
         {
             return GameManager.Instance != null && GameManager.Instance.CurrentDay > 15;
+        }
+        if (t == BuildingType.AirBase)
+        {
+            return GameManager.Instance != null && GameManager.Instance.CurrentDay > 30;
         }
         return true;
     }
@@ -884,7 +906,7 @@ public class Building : MonoBehaviour
         int maxLv = GetMaxUpgradeLevel(t);
         if (lv >= maxLv || !IsBuildingUnlocked(t)) return false;
 
-        if (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode)
+        if (GameManager.IsDevFreeEverything)
         {
             return true;
         }
@@ -903,8 +925,7 @@ public class Building : MonoBehaviour
         int nextLv = lv + 1;
         GetUpgradeCost(t, nextLv, out int gCost, out int mCost);
 
-        bool isFreeDev = (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode);
-        if (!isFreeDev)
+        if (!GameManager.IsDevFreeEverything)
         {
             if (ResourceManager.Instance == null) return false;
             if (ResourceManager.Instance.Gold < gCost || ResourceManager.Instance.Materials < mCost)

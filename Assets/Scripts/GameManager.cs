@@ -9,8 +9,9 @@ public class GameManager : MonoBehaviour
     public GameState CurrentState { get; private set; } = GameState.MainMenu;
 
     public int CurrentDay { get; private set; } = 1;
-    public int maxStages = 30; // 30-Stage Campaign with Cross Map unlock after Stage 15
+    public int maxStages = 40; // 40-Stage Campaign: Cross Map after Stage 15, Air Base & Apocalypse City after Stage 30
     public bool isEndlessMode = false;
+    public bool IsApocalypseCityStage => CurrentDay > 30;
     public bool isEliteRouteAvailable { get; private set; } = false; // 35% chance to appear after Stage 5 (CurrentDay > 5)
     public bool isEliteBattleRoute { get; private set; } = false;    // Active when player picks Elite Battle Route (2x rewards!)
     public bool isEventRouteAvailable { get; private set; } = false; // 20% chance to appear after clearing a stage
@@ -18,7 +19,11 @@ public class GameManager : MonoBehaviour
     [Header("Dev Tools (Passcode: 2348)")]
     public const string DEV_PASSCODE = "2348";
     public bool isDevModeUnlocked { get; private set; } = false;
-    public bool isDevUnconditionalMode = false; // Place any building (current & future) for free, no stage/grid/spawn lock!
+    public bool isDevUnconditionalMode = false; // Unlock all buildings/zones/limits & combat building
+    public bool isDevFreeEverything = false;    // Make all purchases, upgrades, repairs & event costs 0
+
+    public static bool IsDevUnconditional => Instance != null && Instance.isDevUnconditionalMode;
+    public static bool IsDevFreeEverything => Instance != null && Instance.isDevFreeEverything;
 
     public static readonly float[] SpeedOptions = new float[] { 1.0f, 1.5f, 2.0f, 3.0f };
     public float CurrentGameSpeed { get; private set; } = 1.0f;
@@ -57,14 +62,24 @@ public class GameManager : MonoBehaviour
         "Apocalypse Dawn (Tri-Vector Swarm)",
         "Zero Hour (The Shattered Line)",
         "Bastion's Edge (Pre-Climax Defense)",
-        "The Final Stand: Last Bastion Omega (Campaign Climax)"
+        "Bastion Forest Climax (Stage 30 Gatekeeper — Unlocks Air Base & City!)",
+        "Outskirts of the Dead Metropolis (Air Base & Apocalypse City Unlocked!)",
+        "Shattered Skyscraper Canyon",
+        "Burning Amber Expressway",
+        "Collapsed Plaza Siege",
+        "Cathedral of Rust & Ash",
+        "Crimson Dusk Boulevard",
+        "Ground Zero Ruined District",
+        "Hellfire Spire Convergence",
+        "Last Horizon: Citadel Ruins",
+        "The Final Stand: Apocalypse Metropolis Omega (Stage 40 Campaign Climax)"
     };
 
     void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
-        if (maxStages < 30) maxStages = 30;
+        if (maxStages < 40) maxStages = 40;
     }
 
     void Start()
@@ -133,60 +148,46 @@ public class GameManager : MonoBehaviour
 
     public void ApplyPostApocalypseTheme()
     {
-        // 1. Camera Background: Dark dusty ash / toxic smog
+        bool isCity = IsApocalypseCityStage;
+
+        // 1. Camera Background: Crimson-amber burning sunset for Stage 31+ Apocalypse City, moonlit night for Stage 1-30
         if (Camera.main != null)
         {
             Camera.main.clearFlags = CameraClearFlags.SolidColor;
-            Camera.main.backgroundColor = new Color(0.13f, 0.11f, 0.09f, 1.0f); // Dark scorched wasteland sky/fog
+            Camera.main.backgroundColor = isCity
+                ? new Color(0.36f, 0.13f, 0.05f, 1.0f)
+                : new Color(0.06f, 0.08f, 0.10f, 1.0f);
         }
 
-        // 2. Ground Plane: Arid scorched earth / dried cracked dirt
+        // 2. Ground Plane fallback
         GameObject ground = GameObject.Find("Ground");
         if (ground != null)
         {
             var rend = ground.GetComponent<Renderer>();
             if (rend != null)
             {
-                rend.material.color = new Color(0.24f, 0.19f, 0.14f); // Deep wasteland dust/mud
+                rend.material.color = new Color(0.24f, 0.19f, 0.14f);
             }
         }
 
-        // 3. Base Zone: Weathered military bunker & perimeter
-        GameObject baseZone = GameObject.Find("BaseZone");
-        if (baseZone != null)
-        {
-            var rend = baseZone.GetComponent<Renderer>();
-            if (rend != null)
-            {
-                rend.material.color = new Color(0.17f, 0.23f, 0.18f); // Tactical fortified army olive/gray
-            }
-        }
-
-        // 4. Zombie Spawn Zone: Biohazard contaminated wasteland
-        GameObject spawnZone = GameObject.Find("ZombieSpawnZone");
-        if (spawnZone != null)
-        {
-            var rend = spawnZone.GetComponent<Renderer>();
-            if (rend != null)
-            {
-                rend.material.color = new Color(0.35f, 0.11f, 0.10f); // Scorched crimson dead zone
-            }
-        }
-
-        // 5. Directional Light: Warm dusty apocalyptic sun
+        // 3. Directional Light: Fiery amber sunset sun in Stage 31+ City, soft moonlight in Stage 1-30 Forest
         Light dirLight = FindFirstObjectByType<Light>();
         if (dirLight != null && dirLight.type == LightType.Directional)
         {
-            dirLight.color = new Color(1.0f, 0.83f, 0.64f); // Warm dusty amber haze
-            dirLight.intensity = 0.95f;
+            dirLight.color = isCity
+                ? new Color(1.0f, 0.72f, 0.42f)
+                : new Color(0.85f, 0.90f, 0.98f);
+            dirLight.intensity = isCity ? 1.15f : 0.24f;
         }
 
-        // 6. Atmospheric Fog
+        // 4. Atmospheric Fog
         RenderSettings.fog = true;
-        RenderSettings.fogColor = new Color(0.16f, 0.13f, 0.10f);
-        RenderSettings.fogDensity = 0.012f;
+        RenderSettings.fogColor = isCity
+            ? new Color(0.42f, 0.19f, 0.09f)
+            : new Color(0.07f, 0.09f, 0.11f);
+        RenderSettings.fogDensity = isCity ? 0.0038f : 0.0045f;
 
-        Debug.Log("[GameManager] Post-Apocalypse visual theme applied successfully.");
+        Debug.Log($"[GameManager] Visual theme applied (ApocalypseCity={isCity}, Stage={CurrentDay}).");
     }
 
     public string GetStageName()
@@ -207,6 +208,7 @@ public class GameManager : MonoBehaviour
 
     public void StartCombat()
     {
+        PlacementManager.Instance?.SaveWaveStartLayout();
         SetState(GameState.Combat);
         WaveManager.Instance?.StartWave(CurrentDay);
     }
@@ -229,21 +231,23 @@ public class GameManager : MonoBehaviour
     public void ProceedToNextDay()
     {
         // 1. Reset everything on the battlefield & store previously placed buildings into inventory count
+        PlacementManager.Instance?.ClearWaveStartLayout();
         ResetBattlefieldAndStoreBuildings();
 
         // 2. Advance Day / Stage
         CurrentDay++;
         isEliteBattleRoute = false;
+        ApplyPostApocalypseTheme();
 
-        // Wave 30 Climax: Mandatory Elite Battle Route
-        if (CurrentDay == 30)
+        // Wave 30 (Chapter 1 Gatekeeper) & Wave 40 (Final Campaign Climax): Mandatory Elite Battle Route
+        if (CurrentDay == 30 || CurrentDay == maxStages)
         {
             isEliteBattleRoute = true;
             isEliteRouteAvailable = true;
             isEventRouteAvailable = false;
             OnDayChanged?.Invoke(CurrentDay);
             SetState(GameState.RouteSelection);
-            Debug.Log($"[GameManager] Proceeded to Wave 30 | MANDATORY ELITE ASSAULT CLIMAX!");
+            Debug.Log($"[GameManager] Proceeded to Wave {CurrentDay} | MANDATORY ELITE ASSAULT CLIMAX!");
             return;
         }
 
@@ -302,6 +306,7 @@ public class GameManager : MonoBehaviour
         isEliteBattleRoute = false;
         isEventRouteAvailable = false;
         CurrentDay = 1;
+        ApplyPostApocalypseTheme();
         OnDayChanged?.Invoke(CurrentDay);
         ResourceManager.Instance?.ResetStartingResources();
         FortressCore.Instance?.ResetHealth();
@@ -346,6 +351,21 @@ public class GameManager : MonoBehaviour
             GridManager.Instance.ClearAll();
         }
 
+        ClearActiveCombatEntities();
+
+        // Cancel placement preview
+        if (PlacementManager.Instance != null)
+        {
+            PlacementManager.Instance.CancelPlacement();
+        }
+
+        Debug.Log($"[GameManager] Battlefield reset completed. (storedToStock: {storeBuildingsToStock})");
+    }
+
+    private void ClearActiveCombatEntities()
+    {
+        Soldier.ActiveTargetingICBM = null;
+
         // Clear all remaining soldiers
         Soldier[] soldiers = FindObjectsByType<Soldier>(FindObjectsSortMode.None);
         foreach (var s in soldiers)
@@ -367,19 +387,11 @@ public class GameManager : MonoBehaviour
         {
             if (bl != null) Destroy(bl.gameObject);
         }
-
-        // Cancel placement preview
-        if (PlacementManager.Instance != null)
-        {
-            PlacementManager.Instance.CancelPlacement();
-        }
-
-        Debug.Log($"[GameManager] Battlefield reset completed. (storedToStock: {storeBuildingsToStock})");
     }
 
     public void SelectRoute(bool isBattle)
     {
-        if (CurrentDay == 30)
+        if (CurrentDay == 30 || CurrentDay == maxStages)
         {
             SelectEliteBattleRoute();
             return;
@@ -420,8 +432,9 @@ public class GameManager : MonoBehaviour
         {
             isDevModeUnlocked = true;
             isDevUnconditionalMode = true;
+            isDevFreeEverything = true;
             AudioHelper.PlaySound(SoundEffect.ResourceGain, 0.9f);
-            Debug.Log("[DevTools] Passcode 2348 verified! Unconditional Build & Dev Tools unlocked.");
+            Debug.Log("[DevTools] Passcode 2348 verified! Unconditional Build & Free Everything unlocked.");
             return true;
         }
         AudioHelper.PlaySound(SoundEffect.Hit, 0.6f);
@@ -431,7 +444,8 @@ public class GameManager : MonoBehaviour
     public void DevSetStage(int stage)
     {
         CurrentDay = Mathf.Max(1, stage);
-        if (CurrentDay == 30)
+        ApplyPostApocalypseTheme();
+        if (CurrentDay == 30 || CurrentDay == maxStages)
         {
             isEliteBattleRoute = true;
             isEliteRouteAvailable = true;
@@ -439,11 +453,12 @@ public class GameManager : MonoBehaviour
         }
         else
         {
+            isEliteBattleRoute = false;
             isEliteRouteAvailable = (CurrentDay > 5) && (UnityEngine.Random.value < 0.35f);
             isEventRouteAvailable = (UnityEngine.Random.value < 0.20f);
         }
         OnDayChanged?.Invoke(CurrentDay);
-        Debug.Log($"[DevTools] Jumped to Stage {CurrentDay}");
+        Debug.Log($"[DevTools] Jumped to Stage {CurrentDay} (ApocalypseCity={IsApocalypseCityStage})");
     }
 
     public void DevToggleEliteBattleRoute()
@@ -457,5 +472,37 @@ public class GameManager : MonoBehaviour
     {
         isEventRouteAvailable = !isEventRouteAvailable;
         Debug.Log($"[DevTools] Event Route set to: {isEventRouteAvailable}");
+    }
+
+    /// <summary>
+    /// Restarts the current Stage/Wave back to the Planning phase while preserving/restoring placed buildings.
+    /// </summary>
+    public void DevRestartCurrentWave()
+    {
+        Time.timeScale = CurrentGameSpeed;
+
+        WaveManager.Instance?.ResetWaveState();
+        AirSupportManager.Instance?.ResetForNewStage();
+        ClearActiveCombatEntities();
+        FortressCore.Instance?.ResetHealth();
+
+        // Restore any buildings destroyed earlier in this wave, then heal & reset timers on all placed buildings
+        if (CurrentState != GameState.Planning)
+        {
+            PlacementManager.Instance?.RestoreDestroyedFromWaveStartLayout();
+        }
+
+        if (GridManager.Instance != null)
+        {
+            foreach (var b in GridManager.Instance.GetAllBuildings())
+            {
+                if (b != null) b.ResetForWaveRestart();
+            }
+        }
+
+        PlacementManager.Instance?.CancelPlacement();
+        AudioHelper.PlaySound(SoundEffect.ButtonClick);
+        SetState(GameState.Planning);
+        Debug.Log($"[DevTools] Restarted Stage {CurrentDay} back to Planning phase!");
     }
 }

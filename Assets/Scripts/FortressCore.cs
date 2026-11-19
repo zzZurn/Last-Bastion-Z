@@ -51,7 +51,7 @@ public class FortressCore : MonoBehaviour
     public bool Repair(float amount, int materialCost)
     {
         if (currentHealth >= maxHealth) return false;
-        if (ResourceManager.Instance == null || !ResourceManager.Instance.SpendMaterials(materialCost))
+        if (!GameManager.IsDevFreeEverything && (ResourceManager.Instance == null || !ResourceManager.Instance.SpendMaterials(materialCost)))
         {
             return false;
         }

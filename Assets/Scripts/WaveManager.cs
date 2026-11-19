@@ -218,9 +218,10 @@ public class WaveManager : MonoBehaviour
             variant = "Tank";
         }
 
-        // Elite Battle Route: Randomly upgrade spawned non-boss zombies into Elite units (Base 18%, Wave 30 is 2x = 36%)
-        bool isEliteRoute = (GameManager.Instance != null && GameManager.Instance.isEliteBattleRoute) || (day >= 30);
-        float eliteChance = (day >= 30) ? 0.36f : 0.18f;
+        // Elite Battle Route: Randomly upgrade spawned non-boss zombies into Elite units (Base 18%, Climax Wave 30 & Wave 40+ is 2x = 36%)
+        bool isClimaxWave = (day == 30 || day >= 40);
+        bool isEliteRoute = (GameManager.Instance != null && GameManager.Instance.isEliteBattleRoute) || isClimaxWave;
+        float eliteChance = isClimaxWave ? 0.36f : 0.18f;
         bool upgradeToElite = (isEliteRoute && variant != "Boss" && Random.value < eliteChance);
 
         GameObject zObj;

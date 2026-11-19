@@ -294,20 +294,24 @@ public class EventDilemmaSystem : MonoBehaviour
         // Resource check
         if (ResourceManager.Instance != null)
         {
-            if (ResourceManager.Instance.Gold < choice.goldCost)
+            bool isFreeEverything = GameManager.IsDevFreeEverything;
+            if (!isFreeEverything)
             {
-                Debug.LogWarning("[Event] Not enough Gold for this choice!");
-                return false;
-            }
-            if (ResourceManager.Instance.Materials < choice.materialCost)
-            {
-                Debug.LogWarning("[Event] Not enough Materials for this choice!");
-                return false;
-            }
+                if (ResourceManager.Instance.Gold < choice.goldCost)
+                {
+                    Debug.LogWarning("[Event] Not enough Gold for this choice!");
+                    return false;
+                }
+                if (ResourceManager.Instance.Materials < choice.materialCost)
+                {
+                    Debug.LogWarning("[Event] Not enough Materials for this choice!");
+                    return false;
+                }
 
-            // Deduct
-            if (choice.goldCost > 0) ResourceManager.Instance.SpendGold(choice.goldCost);
-            if (choice.materialCost > 0) ResourceManager.Instance.SpendMaterials(choice.materialCost);
+                // Deduct
+                if (choice.goldCost > 0) ResourceManager.Instance.SpendGold(choice.goldCost);
+                if (choice.materialCost > 0) ResourceManager.Instance.SpendMaterials(choice.materialCost);
+            }
 
             // Reward
             int specialGain = UnityEngine.Random.Range(choice.specialRewardMin, choice.specialRewardMax + 1);

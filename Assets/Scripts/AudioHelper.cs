@@ -1,5 +1,8 @@
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
+using UnityEngine.Networking;
 
 public enum SoundEffect
 {
@@ -36,8 +39,46 @@ public enum SoundEffect
 
 public static class AudioHelper
 {
+    private struct CustomClipSpec
+    {
+        public SoundEffect Effect;
+        public string[] FileNames;
+        public float TrimThreshold;
+
+        public CustomClipSpec(SoundEffect effect, float trimThreshold, params string[] fileNames)
+        {
+            Effect = effect;
+            TrimThreshold = trimThreshold;
+            FileNames = fileNames;
+        }
+    }
+
+    private sealed class AudioPreloadRunner : MonoBehaviour { }
+
+    private static readonly CustomClipSpec[] _customClipSpecs = new CustomClipSpec[]
+    {
+        new CustomClipSpec(SoundEffect.SMGShoot, 0f, "SMGShoot.mp3", "SMGShoot.wav"),
+        new CustomClipSpec(SoundEffect.SMGGrenade1, 0f, "SMGGrenade1.mp3", "SMGGrenade1.wav"),
+        new CustomClipSpec(SoundEffect.SMGGrenade2, 0f, "SMGGrenade2.mp3", "SMGGrenade2.wav"),
+        new CustomClipSpec(SoundEffect.SniperShoot1, 0f, "SniperShoot1.mp3", "SniperShoot1.wav"),
+        new CustomClipSpec(SoundEffect.SniperShoot2, 0f, "SniperShoot2.mp3", "SniperShoot2.wav"),
+        new CustomClipSpec(SoundEffect.SniperShoot3, 0f, "SniperShoot3.mp3", "SniperShoot3.wav"),
+        new CustomClipSpec(SoundEffect.SniperShoot4, 0f, "SniperShoot4.mp3", "SniperShoot4.wav"),
+        new CustomClipSpec(SoundEffect.TankShoot1, 0f, "TankShoot1.mp3", "TankShoot1.wav"),
+        new CustomClipSpec(SoundEffect.TankShoot2, 0f, "TankShoot2.mp3", "TankShoot2.wav"),
+        new CustomClipSpec(SoundEffect.TankExplosionDebris, 0f, "TankExplosionDebris.mp3", "TankExplosionDebris.wav"),
+        new CustomClipSpec(SoundEffect.ICBMExplosion, 0f, "ICBMExplosion.mp3", "ICBMExplosion.wav"),
+        new CustomClipSpec(SoundEffect.GuardianStomp, 0.035f, "freesound_community-stomp2-93279.mp3", "GuardianStomp.mp3", "GuardianStomp.wav"),
+        new CustomClipSpec(SoundEffect.GuardianPunch, 0.035f, "soraatwod-punch-416719.wav", "GuardianPunch.wav", "soraatwod-punch-416719.mp3", "GuardianPunch.mp3"),
+        new CustomClipSpec(SoundEffect.B2FlyoverWhoosh, 0.020f, "floraphonic-flying-drone-whoosh-1-185324.mp3"),
+        new CustomClipSpec(SoundEffect.B2BombDropping, 0.020f, "freesound_community-bomb-dropping-101151.mp3")
+    };
+
     private static AudioSource _audioSource;
     private static readonly Dictionary<SoundEffect, AudioClip> _clipCache = new();
+    private static readonly Dictionary<SoundEffect, CustomClipSpec> _specLookup = BuildSpecLookup();
+    private static AudioPreloadRunner _preloadRunner;
+    private static bool _preloadStarted = false;
 
     // Master Volume & Audio Control System:
     public static float MasterVolume { get; private set; } = 1.0f;
@@ -45,128 +86,336 @@ public static class AudioHelper
     private static float _preMuteVolume = 1.0f;
     private static bool _volumeInitialized = false;
 
-    public static void EnsureVolumeInitialized()
+    private static Dictionary<SoundEffect, CustomClipSpec> BuildSpecLookup()
     {
-        if (_volumeInitialized) return;
-        _volumeInitialized = true;
-        MasterVolume = Mathf.Clamp01(PlayerPrefs.GetFloat("LastBastion_MasterVolume", 1.0f));
-        IsMuted = PlayerPrefs.GetInt("LastBastion_IsMuted", 0) == 1;
-        _preMuteVolume = (MasterVolume > 0.05f) ? MasterVolume : 1.0f;
-        AudioListener.volume = IsMuted ? 0f : MasterVolume;
-
-        // Pre-warm Guardian & Air Support audio clips in memory to eliminate any runtime I/O latency
-        PreloadClip(SoundEffect.GuardianPunch);
-        PreloadClip(SoundEffect.GuardianStomp);
-        PreloadClip(SoundEffect.B2FlyoverWhoosh);
-        PreloadClip(SoundEffect.B2BombDropping);
+        var map = new Dictionary<SoundEffect, CustomClipSpec>(_customClipSpecs.Length);
+        foreach (var spec in _customClipSpecs)
+        {
+            map[spec.Effect] = spec;
+        }
+        return map;
     }
 
-    private static void PreloadClip(SoundEffect effect)
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStaticState()
     {
-        GetClip(effect);
+        _audioSource = null;
+        _clipCache.Clear();
+        _preloadRunner = null;
+        _preloadStarted = false;
+        _volumeInitialized = false;
+        _lastICBMExplosionTime = -999f;
+    }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    private static void AutoPreloadOnStartup()
+    {
+        EnsureVolumeInitialized();
+    }
+
+    public static void EnsureVolumeInitialized()
+    {
+        if (!_volumeInitialized)
+        {
+            _volumeInitialized = true;
+            MasterVolume = Mathf.Clamp01(PlayerPrefs.GetFloat("LastBastion_MasterVolume", 1.0f));
+            IsMuted = PlayerPrefs.GetInt("LastBastion_IsMuted", 0) == 1;
+            _preMuteVolume = (MasterVolume > 0.05f) ? MasterVolume : 1.0f;
+            AudioListener.volume = IsMuted ? 0f : MasterVolume;
+        }
+
+        EnsurePreloadStarted();
+    }
+
+    private static string GetExternalAudioDirectory()
+    {
+#if UNITY_EDITOR
+        return Path.Combine(Application.dataPath, "StreamingAudio~");
+#else
+        return Path.Combine(Application.streamingAssetsPath, "Audio");
+#endif
+    }
+
+    private static void EnsurePreloadStarted()
+    {
+        if (_preloadStarted || !Application.isPlaying) return;
+        _preloadStarted = true;
+
+        if (_preloadRunner == null)
+        {
+            var go = GameObject.Find("AudioManager");
+            if (go == null)
+            {
+                go = new GameObject("AudioManager");
+                Object.DontDestroyOnLoad(go);
+            }
+            _preloadRunner = go.GetComponent<AudioPreloadRunner>();
+            if (_preloadRunner == null)
+            {
+                _preloadRunner = go.AddComponent<AudioPreloadRunner>();
+            }
+        }
+
+        foreach (var spec in _customClipSpecs)
+        {
+            if (_clipCache.TryGetValue(spec.Effect, out var existing) && existing != null) continue;
+
+            // Load WAV synchronously first if present, otherwise stream/decode via UnityWebRequestMultimedia
+            if (!TryLoadSyncFromDisk(spec, out AudioClip syncClip))
+            {
+                _preloadRunner.StartCoroutine(LoadClipCoroutine(spec));
+            }
+            else if (syncClip != null)
+            {
+                _clipCache[spec.Effect] = ApplyOptionalTrim(syncClip, spec.TrimThreshold);
+            }
+        }
+    }
+
+    private static bool TryLoadSyncFromDisk(CustomClipSpec spec, out AudioClip clip)
+    {
+        clip = null;
+        string dir = GetExternalAudioDirectory();
+        if (string.IsNullOrEmpty(dir)) return false;
+
+        foreach (string fileName in spec.FileNames)
+        {
+            if (!fileName.EndsWith(".wav", System.StringComparison.OrdinalIgnoreCase)) continue;
+            string fullPath = Path.Combine(dir, fileName);
+            if (!File.Exists(fullPath)) continue;
+
+            clip = LoadWavFromFile(fullPath, Path.GetFileNameWithoutExtension(fileName));
+            if (clip != null) return true;
+        }
+
+        return false;
+    }
+
+    private static IEnumerator LoadClipCoroutine(CustomClipSpec spec)
+    {
+        string dir = GetExternalAudioDirectory();
+        if (string.IsNullOrEmpty(dir)) yield break;
+
+        foreach (string fileName in spec.FileNames)
+        {
+            string fullPath = Path.Combine(dir, fileName);
+#if UNITY_EDITOR || UNITY_STANDALONE || UNITY_IOS
+            if (!File.Exists(fullPath)) continue;
+#endif
+            AudioType audioType = GetAudioType(fileName);
+            string uri = BuildFileUri(fullPath);
+
+            using (var request = UnityWebRequestMultimedia.GetAudioClip(uri, audioType))
+            {
+                if (request.downloadHandler is DownloadHandlerAudioClip audioHandler)
+                {
+                    // Keep uncompressed PCM in memory so CreateInstantClip/GetData works cleanly
+                    audioHandler.compressed = false;
+                    audioHandler.streamAudio = false;
+                }
+
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    AudioClip loaded = DownloadHandlerAudioClip.GetContent(request);
+                    if (loaded != null && loaded.loadState == AudioDataLoadState.Loaded)
+                    {
+                        loaded.name = Path.GetFileNameWithoutExtension(fileName);
+                        AudioClip processed = ApplyOptionalTrim(loaded, spec.TrimThreshold);
+                        if (spec.Effect == SoundEffect.B2FlyoverWhoosh)
+                        {
+                            processed = AmplifyAndNormalizeClip(processed, 2.8f);
+                        }
+                        else if (spec.Effect == SoundEffect.B2BombDropping)
+                        {
+                            processed = AmplifyAndNormalizeClip(processed, 1.45f);
+                        }
+                        _clipCache[spec.Effect] = processed;
+                        yield break;
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"[AudioHelper] Failed loading '{fileName}' via UnityWebRequest: {request.error}");
+                }
+            }
+        }
+    }
+
+    private static AudioType GetAudioType(string fileName)
+    {
+        string ext = Path.GetExtension(fileName).ToLowerInvariant();
+        switch (ext)
+        {
+            case ".wav": return AudioType.WAV;
+            case ".ogg": return AudioType.OGGVORBIS;
+            default: return AudioType.MPEG;
+        }
+    }
+
+    private static string BuildFileUri(string path)
+    {
+        if (path.Contains("://")) return path;
+        return new System.Uri(Path.GetFullPath(path)).AbsoluteUri;
+    }
+
+    private static AudioClip ApplyOptionalTrim(AudioClip clip, float threshold)
+    {
+        if (clip != null && threshold > 0f)
+        {
+            return CreateInstantClip(clip, threshold);
+        }
+        return clip;
+    }
+
+    /// <summary>
+    /// Pure C# PCM WAV decoder so .wav files load synchronously without Unity's external FSBTool64.exe.
+    /// </summary>
+    private static AudioClip LoadWavFromFile(string filePath, string clipName)
+    {
+        try
+        {
+            byte[] bytes = File.ReadAllBytes(filePath);
+            if (bytes.Length < 44) return null;
+
+            // Verify RIFF/WAVE header
+            if (bytes[0] != 'R' || bytes[1] != 'I' || bytes[2] != 'F' || bytes[3] != 'F' ||
+                bytes[8] != 'W' || bytes[9] != 'A' || bytes[10] != 'V' || bytes[11] != 'E')
+            {
+                return null;
+            }
+
+            int channels = 0;
+            int sampleRate = 0;
+            int bitsPerSample = 0;
+            int audioFormat = 0;
+            int dataOffset = -1;
+            int dataSize = 0;
+
+            int pos = 12;
+            while (pos + 8 <= bytes.Length)
+            {
+                string chunkId = System.Text.Encoding.ASCII.GetString(bytes, pos, 4);
+                int chunkSize = System.BitConverter.ToInt32(bytes, pos + 4);
+                pos += 8;
+
+                if (chunkSize < 0 || pos + chunkSize > bytes.Length) break;
+
+                if (chunkId == "fmt " && chunkSize >= 16)
+                {
+                    audioFormat = System.BitConverter.ToUInt16(bytes, pos);
+                    channels = System.BitConverter.ToUInt16(bytes, pos + 2);
+                    sampleRate = System.BitConverter.ToInt32(bytes, pos + 4);
+                    bitsPerSample = System.BitConverter.ToUInt16(bytes, pos + 14);
+                }
+                else if (chunkId == "data")
+                {
+                    dataOffset = pos;
+                    dataSize = chunkSize;
+                    break;
+                }
+
+                pos += chunkSize + (chunkSize & 1); // RIFF chunks are word-aligned
+            }
+
+            if (dataOffset < 0 || channels <= 0 || sampleRate <= 0) return null;
+            // Support PCM (1) and IEEE float (3)
+            if (audioFormat != 1 && audioFormat != 3) return null;
+
+            int bytesPerSample = bitsPerSample / 8;
+            if (bytesPerSample <= 0) return null;
+
+            int totalSampleValues = dataSize / bytesPerSample;
+            int frameCount = totalSampleValues / channels;
+            if (frameCount <= 0) return null;
+
+            float[] samples = new float[totalSampleValues];
+            if (audioFormat == 3 && bitsPerSample == 32)
+            {
+                for (int i = 0; i < totalSampleValues; i++)
+                {
+                    samples[i] = System.BitConverter.ToSingle(bytes, dataOffset + i * 4);
+                }
+            }
+            else if (bitsPerSample == 16)
+            {
+                for (int i = 0; i < totalSampleValues; i++)
+                {
+                    short val = System.BitConverter.ToInt16(bytes, dataOffset + i * 2);
+                    samples[i] = val / 32768f;
+                }
+            }
+            else if (bitsPerSample == 24)
+            {
+                for (int i = 0; i < totalSampleValues; i++)
+                {
+                    int idx = dataOffset + i * 3;
+                    int val = bytes[idx] | (bytes[idx + 1] << 8) | ((sbyte)bytes[idx + 2] << 16);
+                    samples[i] = val / 8388608f;
+                }
+            }
+            else if (bitsPerSample == 8)
+            {
+                for (int i = 0; i < totalSampleValues; i++)
+                {
+                    samples[i] = (bytes[dataOffset + i] - 128) / 128f;
+                }
+            }
+            else
+            {
+                return null;
+            }
+
+            AudioClip clip = AudioClip.Create(clipName, frameCount, channels, sampleRate, false);
+            clip.SetData(samples, 0);
+            return clip;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[AudioHelper] Failed to parse WAV '{filePath}': {ex.Message}");
+            return null;
+        }
     }
 
     public static AudioClip GetClip(SoundEffect effect)
     {
         if (_clipCache.TryGetValue(effect, out var cached) && cached != null) return cached;
 
-        AudioClip clip = null;
-        if (effect == SoundEffect.SMGShoot)
-        {
-            clip = Resources.Load<AudioClip>("Audio/SMGShoot");
-        }
-        else if (effect == SoundEffect.SMGGrenade1)
-        {
-            clip = Resources.Load<AudioClip>("Audio/SMGGrenade1");
-        }
-        else if (effect == SoundEffect.SMGGrenade2)
-        {
-            clip = Resources.Load<AudioClip>("Audio/SMGGrenade2");
-        }
-        else if (effect == SoundEffect.SniperShoot1)
-        {
-            clip = Resources.Load<AudioClip>("Audio/SniperShoot1");
-        }
-        else if (effect == SoundEffect.SniperShoot2)
-        {
-            clip = Resources.Load<AudioClip>("Audio/SniperShoot2");
-        }
-        else if (effect == SoundEffect.SniperShoot3)
-        {
-            clip = Resources.Load<AudioClip>("Audio/SniperShoot3");
-        }
-        else if (effect == SoundEffect.SniperShoot4)
-        {
-            clip = Resources.Load<AudioClip>("Audio/SniperShoot4");
-        }
-        else if (effect == SoundEffect.TankShoot1)
-        {
-            clip = Resources.Load<AudioClip>("Audio/TankShoot1");
-        }
-        else if (effect == SoundEffect.TankShoot2)
-        {
-            clip = Resources.Load<AudioClip>("Audio/TankShoot2");
-        }
-        else if (effect == SoundEffect.TankExplosionDebris)
-        {
-            clip = Resources.Load<AudioClip>("Audio/TankExplosionDebris");
-        }
-        else if (effect == SoundEffect.ICBMExplosion)
-        {
-            clip = Resources.Load<AudioClip>("Audio/ICBMExplosion");
-        }
-        else if (effect == SoundEffect.GuardianStomp)
-        {
-            clip = Resources.Load<AudioClip>("Audio/freesound_community-stomp2-93279");
-            if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianStomp");
-            if (clip != null) clip = CreateInstantClip(clip, 0.035f);
-        }
-        else if (effect == SoundEffect.GuardianPunch)
-        {
-            clip = Resources.Load<AudioClip>("Audio/soraatwod-punch-416719");
-            if (clip == null) clip = Resources.Load<AudioClip>("Audio/GuardianPunch");
-            if (clip != null) clip = CreateInstantClip(clip, 0.035f);
-        }
-        else if (effect == SoundEffect.B2FlyoverWhoosh)
-        {
-            clip = Resources.Load<AudioClip>("Audio/floraphonic-flying-drone-whoosh-1-185324");
-            if (clip != null) clip = CreateInstantClip(clip, 0.020f);
-        }
-        else if (effect == SoundEffect.B2BombDropping)
-        {
-            clip = Resources.Load<AudioClip>("Audio/freesound_community-bomb-dropping-101151");
-            if (clip != null) clip = CreateInstantClip(clip, 0.020f);
-        }
+        EnsurePreloadStarted();
 
-        if (clip == null)
+        if (_specLookup.TryGetValue(effect, out var spec))
         {
-            clip = GenerateProceduralClip(effect);
-            if (clip != null &&
-                effect != SoundEffect.SMGShoot &&
-                effect != SoundEffect.SMGGrenade1 &&
-                effect != SoundEffect.SMGGrenade2 &&
-                effect != SoundEffect.SniperShoot1 &&
-                effect != SoundEffect.SniperShoot2 &&
-                effect != SoundEffect.SniperShoot3 &&
-                effect != SoundEffect.SniperShoot4 &&
-                effect != SoundEffect.TankShoot1 &&
-                effect != SoundEffect.TankShoot2 &&
-                effect != SoundEffect.TankExplosionDebris &&
-                effect != SoundEffect.ICBMExplosion &&
-                effect != SoundEffect.GuardianStomp &&
-                effect != SoundEffect.GuardianPunch &&
-                effect != SoundEffect.B2FlyoverWhoosh &&
-                effect != SoundEffect.B2BombDropping)
+            if (TryLoadSyncFromDisk(spec, out AudioClip syncClip) && syncClip != null)
             {
-                _clipCache[effect] = clip;
+                syncClip = ApplyOptionalTrim(syncClip, spec.TrimThreshold);
+                _clipCache[effect] = syncClip;
+                return syncClip;
             }
-        }
-        else
-        {
-            _clipCache[effect] = clip;
+
+            // Optional fallback if imported assets exist in Resources/Audio
+            foreach (string fileName in spec.FileNames)
+            {
+                string resName = Path.GetFileNameWithoutExtension(fileName);
+                AudioClip resClip = Resources.Load<AudioClip>("Audio/" + resName);
+                if (resClip != null)
+                {
+                    resClip = ApplyOptionalTrim(resClip, spec.TrimThreshold);
+                    _clipCache[effect] = resClip;
+                    return resClip;
+                }
+            }
+
+            // While async MP3 preload is still in flight, return procedural fallback without caching it
+            return GenerateProceduralClip(effect);
         }
 
-        return clip;
+        AudioClip procClip = GenerateProceduralClip(effect);
+        if (procClip != null)
+        {
+            _clipCache[effect] = procClip;
+        }
+        return procClip;
     }
 
     public static void SetMasterVolume(float volume)
@@ -443,6 +692,45 @@ public static class AudioHelper
         catch (System.Exception ex)
         {
             Debug.LogWarning($"[AudioHelper] Failed to trim clip {original.name}: {ex.Message}");
+            return original;
+        }
+    }
+
+    /// <summary>
+    /// Normalizes peak amplitude and applies soft-limited gain boost so quieter aircraft clips cut clearly through combat SFX.
+    /// </summary>
+    private static AudioClip AmplifyAndNormalizeClip(AudioClip original, float gainBoost)
+    {
+        if (original == null) return null;
+        try
+        {
+            int channels = original.channels;
+            int freq = original.frequency;
+            float[] samples = new float[original.samples * channels];
+            original.GetData(samples, 0);
+
+            float peak = 0.001f;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float a = Mathf.Abs(samples[i]);
+                if (a > peak) peak = a;
+            }
+
+            float normGain = (0.95f / peak) * Mathf.Max(1f, gainBoost);
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float v = samples[i] * normGain;
+                // Smooth soft saturation (tanh) prevents harsh digital clipping while maximizing perceived loudness
+                samples[i] = (float)System.Math.Tanh(v) * 0.98f;
+            }
+
+            AudioClip boosted = AudioClip.Create($"{original.name}_Boosted", original.samples, channels, freq, false);
+            boosted.SetData(samples, 0);
+            return boosted;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[AudioHelper] Failed to amplify clip {original.name}: {ex.Message}");
             return original;
         }
     }

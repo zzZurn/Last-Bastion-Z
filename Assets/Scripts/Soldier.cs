@@ -47,7 +47,9 @@ public class Soldier : MonoBehaviour
     private Transform target;
     public bool isDead { get; private set; } = false;
 
-    // HP Bar texture cache
+    // HP Bar texture cache & damage visibility timer
+    private float hpBarVisibleTimer = 0f;
+    private const float HP_BAR_DISPLAY_DURATION = 3.0f;
     private static Texture2D hpTexture;
 
     void OnEnable()
@@ -106,6 +108,10 @@ public class Soldier : MonoBehaviour
     void Update()
     {
         if (isDead) return;
+        if (hpBarVisibleTimer > 0f)
+        {
+            hpBarVisibleTimer -= Time.deltaTime;
+        }
 
         if (isICBMLauncher)
         {
@@ -630,6 +636,7 @@ public class Soldier : MonoBehaviour
         }
 
         health -= dmg;
+        hpBarVisibleTimer = HP_BAR_DISPLAY_DURATION;
         if (health <= 0f)
         {
             isDead = true;
@@ -792,26 +799,29 @@ public class Soldier : MonoBehaviour
         float x = screenPos.x - barW / 2f;
         float y = Screen.height - screenPos.y;
 
-        if (hpTexture == null)
+        if (hpBarVisibleTimer > 0f)
         {
-            hpTexture = new Texture2D(1, 1);
-            hpTexture.SetPixel(0, 0, Color.white);
-            hpTexture.Apply();
+            if (hpTexture == null)
+            {
+                hpTexture = new Texture2D(1, 1);
+                hpTexture.SetPixel(0, 0, Color.white);
+                hpTexture.Apply();
+            }
+
+            float pct = Mathf.Clamp01(health / maxHealth);
+
+            // Background (Dark)
+            Color prevColor = GUI.color;
+            GUI.color = new Color(0.1f, 0.1f, 0.1f, 0.85f);
+            GUI.DrawTexture(new Rect(x - 1, y - 1, barW + 2, barH + 2), hpTexture);
+
+            // Health fill
+            GUI.color = isICBMLauncher
+                ? new Color(0.35f, 0.95f, 0.45f)
+                : (isLightTank ? new Color(1.0f, 0.5f, 0.15f) : (isGuardian ? new Color(1.0f, 0.8f, 0.2f) : new Color(0.2f, 0.7f, 1f)));
+            GUI.DrawTexture(new Rect(x, y, barW * pct, barH), hpTexture);
+            GUI.color = prevColor;
         }
-
-        float pct = Mathf.Clamp01(health / maxHealth);
-
-        // Background (Dark)
-        Color prevColor = GUI.color;
-        GUI.color = new Color(0.1f, 0.1f, 0.1f, 0.85f);
-        GUI.DrawTexture(new Rect(x - 1, y - 1, barW + 2, barH + 2), hpTexture);
-
-        // Health fill
-        GUI.color = isICBMLauncher
-            ? new Color(0.35f, 0.95f, 0.45f)
-            : (isLightTank ? new Color(1.0f, 0.5f, 0.15f) : (isGuardian ? new Color(1.0f, 0.8f, 0.2f) : new Color(0.2f, 0.7f, 1f)));
-        GUI.DrawTexture(new Rect(x, y, barW * pct, barH), hpTexture);
-        GUI.color = prevColor;
 
         // Draw ICBM Launcher interactive status prompt above HP bar
         if (isICBMLauncher)

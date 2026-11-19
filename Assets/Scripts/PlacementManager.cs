@@ -41,6 +41,18 @@ public class PlacementManager : MonoBehaviour
     // Blueprint of the previous day's base layout for instant 1-click rebuild!
     public List<SavedBuildingSlot> lastSavedLayout = new List<SavedBuildingSlot>();
 
+    private struct WaveSnapshotSlot
+    {
+        public int gridX;
+        public int gridY;
+        public Building.BuildingType type;
+        public int goldCost;
+        public int materialCost;
+        public int specialMaterialCost;
+    }
+
+    private readonly List<WaveSnapshotSlot> waveStartLayout = new List<WaveSnapshotSlot>();
+
     // Stored/Recovered buildings from previous days
     private Dictionary<Building.BuildingType, int> storedBuildingCounts = new Dictionary<Building.BuildingType, int>()
     {
@@ -121,6 +133,7 @@ public class PlacementManager : MonoBehaviour
             { Building.BuildingType.AirBase, 0 }
         };
         lastSavedLayout.Clear();
+        waveStartLayout.Clear();
         Debug.Log("[PlacementManager] Stored building stock and layout blueprint cleared.");
     }
 
@@ -139,6 +152,53 @@ public class PlacementManager : MonoBehaviour
             }
         }
         Debug.Log($"[PlacementManager] Saved base blueprint with {lastSavedLayout.Count} buildings.");
+    }
+
+    /// <summary>
+    /// Captures the exact layout at the start of Combat so Dev Tools can cleanly restart the current wave.
+    /// </summary>
+    public void SaveWaveStartLayout()
+    {
+        waveStartLayout.Clear();
+        if (GridManager.Instance == null) return;
+
+        foreach (var b in GridManager.Instance.GetAllBuildings())
+        {
+            if (b == null) continue;
+            waveStartLayout.Add(new WaveSnapshotSlot
+            {
+                gridX = b.gridX,
+                gridY = b.gridY,
+                type = b.type,
+                goldCost = b.goldCost,
+                materialCost = b.materialCost,
+                specialMaterialCost = b.specialMaterialCost
+            });
+        }
+    }
+
+    public void ClearWaveStartLayout()
+    {
+        waveStartLayout.Clear();
+    }
+
+    public void RestoreDestroyedFromWaveStartLayout()
+    {
+        if (GridManager.Instance == null || waveStartLayout.Count == 0) return;
+
+        int restored = 0;
+        foreach (var slot in waveStartLayout)
+        {
+            if (GridManager.Instance.CanPlaceBuildingAt(slot.gridX, slot.gridY, slot.type))
+            {
+                SpawnBuildingInstance(slot.type, slot.gridX, slot.gridY, slot.goldCost, slot.materialCost, slot.specialMaterialCost);
+                restored++;
+            }
+        }
+        if (restored > 0)
+        {
+            Debug.Log($"[PlacementManager] Restored {restored} destroyed buildings for wave restart.");
+        }
     }
 
     public bool HasSavedLayout()
@@ -586,11 +646,12 @@ public class PlacementManager : MonoBehaviour
             }
         }
 
-        // Check if player has enough resources/stock for (alreadyQueued + 1) buildings
-        bool isDevFree = (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode);
-        if (!isDevFree && ResourceManager.Instance != null)
+        // Check placement limit & resource/stock requirements
+        bool isDevUncond = GameManager.IsDevUnconditional;
+        bool isDevFree = GameManager.IsDevFreeEverything;
+
+        if (!isDevUncond)
         {
-            // Check placement limit (e.g. SMG Tent & Sniper's Nest capped at 10)
             int maxLimit = Building.GetMaxBuildingPlacementLimit(type);
             if (maxLimit > 0)
             {
@@ -600,7 +661,10 @@ public class PlacementManager : MonoBehaviour
                     return false;
                 }
             }
+        }
 
+        if (!isDevFree && ResourceManager.Instance != null)
+        {
             int nextTotalCount = dragQueuedOrigins.Count + 1;
             int stored = GetStoredCount(type);
             int paidCount = Mathf.Max(0, nextTotalCount - stored);
@@ -781,10 +845,11 @@ public class PlacementManager : MonoBehaviour
             return;
         }
 
-        bool isDevFree = (GameManager.Instance != null && GameManager.Instance.isDevUnconditionalMode);
+        bool isDevUncond = GameManager.IsDevUnconditional;
+        bool isDevFree = GameManager.IsDevFreeEverything;
 
         int maxLimit = Building.GetMaxBuildingPlacementLimit(selectedType);
-        if (maxLimit > 0 && !isDevFree)
+        if (maxLimit > 0 && !isDevUncond)
         {
             int currentActive = Building.GetActiveBuildingCount(selectedType);
             if (currentActive >= maxLimit)
@@ -820,15 +885,21 @@ public class PlacementManager : MonoBehaviour
             Debug.Log($"[Placement] Deployed {selectedType} from inventory! Remaining stored: {storedBuildingCounts[selectedType]}");
         }
 
-        // Create building GameObject with composite 2.5D block model
+        SpawnBuildingInstance(selectedType, x, y, goldCost, matCost, specCost);
+        AudioHelper.PlaySound(SoundEffect.BuildingPlace);
+        Debug.Log($"[Placement] Built {selectedType} at ({x}, {y})");
+    }
+
+    private Building SpawnBuildingInstance(Building.BuildingType type, int x, int y, int goldCost, int matCost, int specCost)
+    {
         GameObject bObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        bObj.name = $"Building_{selectedType}_{x}_{y}";
+        bObj.name = $"Building_{type}_{x}_{y}";
         bObj.transform.localScale = Vector3.one;
 
-        BuildingBlockVisualizer.AttachBuildingVisuals(bObj, selectedType);
+        BuildingBlockVisualizer.AttachBuildingVisuals(bObj, type);
 
         Building building = bObj.AddComponent<Building>();
-        building.type = selectedType;
+        building.type = type;
         building.gridX = x;
         building.gridY = y;
         building.goldCost = goldCost;
@@ -836,7 +907,6 @@ public class PlacementManager : MonoBehaviour
         building.specialMaterialCost = specCost;
 
         GridManager.Instance.PlaceBuilding(x, y, building);
-        AudioHelper.PlaySound(SoundEffect.BuildingPlace);
-        Debug.Log($"[Placement] Built {selectedType} at ({x}, {y})");
+        return building;
     }
 }
