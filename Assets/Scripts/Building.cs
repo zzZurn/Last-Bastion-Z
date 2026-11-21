@@ -166,14 +166,17 @@ public class Building : MonoBehaviour
                     {
                         supBlockStyle = new GUIStyle(GUI.skin.label)
                         {
-                            fontSize = 10,
-                            fontStyle = FontStyle.Bold,
-                            alignment = TextAnchor.MiddleCenter
+                            font = GameFontTheme.BodyBoldFont,
+                            fontSize = 13,
+                            fontStyle = FontStyle.Normal,
+                            alignment = TextAnchor.MiddleCenter,
+                            wordWrap = false,
+                            clipping = TextClipping.Overflow
                         };
                     }
                     Color prevC = GUI.color;
                     GUI.color = new Color(1f, 0.35f, 0.35f);
-                    GUI.Label(new Rect(scr.x - 70f, Screen.height - scr.y - 14f, 140f, 20f), $"⚠️ SUP FULL ({Soldier.MAX_SUPPLY})", supBlockStyle);
+                    GUI.Label(new Rect(scr.x - 85f, Screen.height - scr.y - 16f, 170f, 22f), $"⚠️ SUP FULL ({Soldier.MAX_SUPPLY})", supBlockStyle);
                     GUI.color = prevC;
                 }
             }
@@ -942,6 +945,20 @@ public class Building : MonoBehaviour
         AudioHelper.PlaySound(SoundEffect.ResourceGain, 0.9f);
         Debug.Log($"[BuildingUpgrade] {t} upgraded to Lv.{nextLv}! (Damage Multiplier: {GetDamageMultiplier(t) * 100f:0}%)");
         return true;
+    }
+
+    public static void SetUpgradeLevel(BuildingType t, int level)
+    {
+        int clamped = Mathf.Clamp(level, 0, GetMaxUpgradeLevel(t));
+        if (clamped <= 0)
+        {
+            upgradeLevels.Remove(t);
+        }
+        else
+        {
+            upgradeLevels[t] = clamped;
+        }
+        Soldier.ApplyUpgradeToActiveUnits(t);
     }
 
     public static void ResetAllUpgrades()

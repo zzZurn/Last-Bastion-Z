@@ -17,7 +17,21 @@ public class UIManager : MonoBehaviour
     private GUIStyle badgeStyle;
     private GUIStyle activeBadgeStyle;
     private GUIStyle panelHeaderStyle;
+    private GUIStyle singleLineLabelStyle;
+    private GUIStyle dayTransitionTitleStyle;
+    private GUIStyle dayTransitionHintStyle;
+    private Texture2D blackFadeTexture;
     private bool stylesInitialized = false;
+
+    // Day Transition ("DAY X" black screen fade + left-click skip)
+    private bool isDayTransitionActive = false;
+    private int dayTransitionNumber = 1;
+    private float dayTransitionElapsed = 0f;
+    private float dayTransitionAlpha = 0f;
+    private int dayTransitionStartFrame = -1;
+    private int dayTransitionSuppressFrame = -1;
+    private const float DAY_TRANSITION_HOLD = 1.10f;
+    private const float DAY_TRANSITION_FADE = 1.70f;
 
     // UI Toggle states
     public bool isBuildMenuOpen = true;
@@ -26,6 +40,7 @@ public class UIManager : MonoBehaviour
     public bool isQuitConfirmOpen = false;
     private string devPasscodeInput = "";
     private string devAuthStatusMsg = "";
+    private string devBaseStatusMsg = "";
 
     // Currently inspected building type in the UI
     public enum BuildMenuTab { UnitBases, FrontlineFortifications, AirSupport }
@@ -43,14 +58,69 @@ public class UIManager : MonoBehaviour
 
     void OnDestroy()
     {
+        if (blackFadeTexture != null)
+        {
+            Destroy(blackFadeTexture);
+            blackFadeTexture = null;
+        }
         if (Instance == this)
         {
             Instance = null;
         }
     }
 
+    public void TriggerDayTransition(int dayNumber)
+    {
+        dayTransitionNumber = Mathf.Max(1, dayNumber);
+        isDayTransitionActive = true;
+        dayTransitionElapsed = 0f;
+        dayTransitionAlpha = 1f;
+        dayTransitionStartFrame = Time.frameCount;
+    }
+
+    public void CancelDayTransition()
+    {
+        isDayTransitionActive = false;
+        dayTransitionAlpha = 0f;
+    }
+
+    private void DismissDayTransitionImmediate()
+    {
+        isDayTransitionActive = false;
+        dayTransitionAlpha = 0f;
+        dayTransitionSuppressFrame = Time.frameCount;
+    }
+
+    private void UpdateDayTransition()
+    {
+        if (!isDayTransitionActive) return;
+
+        if (Time.frameCount > dayTransitionStartFrame && Input.GetMouseButtonDown(0))
+        {
+            DismissDayTransitionImmediate();
+            return;
+        }
+
+        dayTransitionElapsed += Time.unscaledDeltaTime;
+        if (dayTransitionElapsed <= DAY_TRANSITION_HOLD)
+        {
+            dayTransitionAlpha = 1f;
+        }
+        else
+        {
+            float t = Mathf.Clamp01((dayTransitionElapsed - DAY_TRANSITION_HOLD) / DAY_TRANSITION_FADE);
+            dayTransitionAlpha = Mathf.SmoothStep(1f, 0f, t);
+            if (t >= 1f)
+            {
+                isDayTransitionActive = false;
+                dayTransitionAlpha = 0f;
+            }
+        }
+    }
+
     void Update()
     {
+        UpdateDayTransition();
         // Hotkey: Enter / Space to start game from Main Menu
         if (GameManager.Instance != null && GameManager.Instance.CurrentState == GameManager.GameState.MainMenu)
         {
@@ -140,16 +210,20 @@ public class UIManager : MonoBehaviour
             else if (Input.GetKeyDown(KeyCode.Alpha4)) GameManager.Instance.SetGameSpeed(3.0f);
             else if (Input.GetKeyDown(KeyCode.F)) GameManager.Instance.CycleGameSpeed();
 
-            // Combat Air Support Hotkeys: Q (Fighter CAS), E (B-2 Stealth Bomber)
-            if (!isQuitConfirmOpen && GameManager.Instance.CurrentState == GameManager.GameState.Combat && AirSupportManager.Instance != null)
+            // Combat Strike Hotkeys: Q (Fighter CAS), E (B-2 Stealth Bomber), R (ICBM Launcher)
+            if (!isQuitConfirmOpen && GameManager.Instance.CurrentState == GameManager.GameState.Combat)
             {
-                if (Input.GetKeyDown(KeyCode.Q))
+                if (Input.GetKeyDown(KeyCode.Q) && AirSupportManager.Instance != null)
                 {
                     AirSupportManager.Instance.ToggleFighterTargeting();
                 }
-                else if (Input.GetKeyDown(KeyCode.E))
+                else if (Input.GetKeyDown(KeyCode.E) && AirSupportManager.Instance != null)
                 {
                     AirSupportManager.Instance.ToggleB2Targeting();
+                }
+                else if (Input.GetKeyDown(KeyCode.R))
+                {
+                    Soldier.TogglePrimaryICBMTargeting();
                 }
             }
         }
@@ -161,6 +235,7 @@ public class UIManager : MonoBehaviour
     /// </summary>
     public bool IsPointerOverUI()
     {
+        if (isDayTransitionActive || Time.frameCount <= dayTransitionSuppressFrame) return true;
         if (isQuitConfirmOpen) return true;
         if (GameManager.Instance != null && GameManager.Instance.CurrentState == GameManager.GameState.MainMenu)
         {
@@ -176,23 +251,23 @@ public class UIManager : MonoBehaviour
         {
             if (isBuildMenuOpen)
             {
-                Rect menuRect = new Rect(15f, 78f, 380f, Mathf.Min(740f, Screen.height - 90f));
+                Rect menuRect = new Rect(15f, 78f, 485f, Mathf.Min(740f, Screen.height - 90f));
                 if (menuRect.Contains(mouseGuiPos)) return true;
             }
             else
             {
-                Rect openBtnRect = new Rect(15f, 78f, 200f, 40f);
+                Rect openBtnRect = new Rect(15f, 78f, 225f, 42f);
                 if (openBtnRect.Contains(mouseGuiPos)) return true;
             }
 
             // Start Wave button (bottom right)
-            float startBtnW = 240f;
-            float startBtnH = 50f;
+            float startBtnW = 260f;
+            float startBtnH = 52f;
             Rect startBtnRect = new Rect(Screen.width - startBtnW - 20f, Screen.height - startBtnH - 20f, startBtnW, startBtnH);
             if (startBtnRect.Contains(mouseGuiPos)) return true;
 
             // Bottom camera controls hint
-            Rect bottomHintRect = new Rect(15f, Screen.height - 52f, 600f, 40f);
+            Rect bottomHintRect = new Rect(15f, Screen.height - 54f, 740f, 42f);
             if (bottomHintRect.Contains(mouseGuiPos)) return true;
         }
 
@@ -200,26 +275,29 @@ public class UIManager : MonoBehaviour
         Rect topBarRect = new Rect(10, 26, Screen.width - 20, 44);
         if (topBarRect.Contains(mouseGuiPos)) return true;
 
-        Rect speedPanelRect = new Rect(Screen.width - 335f, 76f, 325f, 38f);
+        Rect speedPanelRect = new Rect(Screen.width - 365f, 76f, 355f, 38f);
         if (speedPanelRect.Contains(mouseGuiPos)) return true;
 
-        Rect volumePanelRect = new Rect(Screen.width - 605f, 76f, 260f, 38f);
+        Rect volumePanelRect = new Rect(Screen.width - 645f, 76f, 270f, 38f);
         if (volumePanelRect.Contains(mouseGuiPos)) return true;
 
-        // 3. HUD Toggle button, Dev Tools button & Grid Toggle button (top right)
-        Rect hudToggleRect = new Rect(Screen.width - 110, 4, 100, 22);
+        // 3. HUD Toggle button, Dev Tools button, Grid Toggle button & Quit button (top right)
+        Rect hudToggleRect = new Rect(Screen.width - 128, 4, 118, 22);
         if (hudToggleRect.Contains(mouseGuiPos)) return true;
 
-        Rect devToggleRect = new Rect(Screen.width - 235, 4, 120, 22);
+        Rect devToggleRect = new Rect(Screen.width - 274, 4, 140, 22);
         if (devToggleRect.Contains(mouseGuiPos)) return true;
 
-        Rect gridToggleRect = new Rect(Screen.width - 345, 4, 105, 22);
+        Rect gridToggleRect = new Rect(Screen.width - 402, 4, 122, 22);
         if (gridToggleRect.Contains(mouseGuiPos)) return true;
+
+        Rect quitToggleRect = new Rect(Screen.width - 520, 4, 112, 22);
+        if (quitToggleRect.Contains(mouseGuiPos)) return true;
 
         if (isDevPanelOpen && GameManager.Instance != null)
         {
-            float devH = GameManager.Instance.isDevModeUnlocked ? 520f : 175f;
-            Rect devPanelRect = new Rect(Screen.width - 355f, 118f, 345f, devH);
+            float devH = GameManager.Instance.isDevModeUnlocked ? 595f : 190f;
+            Rect devPanelRect = new Rect(Screen.width - 385f, 118f, 375f, devH);
             if (devPanelRect.Contains(mouseGuiPos)) return true;
         }
 
@@ -234,13 +312,18 @@ public class UIManager : MonoBehaviour
                 return true;
             }
         }
+        if (GameManager.Instance != null && GameManager.Instance.CurrentState == GameManager.GameState.Combat &&
+            Soldier.GetPrimaryICBMLauncher() != null && GetIcbmHudButtonRect().Contains(mouseGuiPos))
+        {
+            return true;
+        }
 
         // 4. Modal Dialogs (Reward, Route, Victory)
         if (GameManager.Instance != null)
         {
             if (GameManager.Instance.CurrentState == GameManager.GameState.Reward)
             {
-                Rect rewardDialog = new Rect(Screen.width / 2f - 270f, Screen.height / 2f - 120f, 540f, 240f);
+                Rect rewardDialog = new Rect(Screen.width / 2f - 300f, Screen.height / 2f - 128f, 600f, 255f);
                 if (rewardDialog.Contains(mouseGuiPos)) return true;
             }
             else if (GameManager.Instance.CurrentState == GameManager.GameState.RouteSelection)
@@ -248,24 +331,24 @@ public class UIManager : MonoBehaviour
                 bool showElite = GameManager.Instance.isEliteRouteAvailable;
                 bool showEvent = GameManager.Instance.isEventRouteAvailable;
                 int cardCount = 1 + (showElite ? 1 : 0) + (showEvent ? 1 : 0);
-                float rW = (cardCount == 3) ? 820f : ((cardCount == 2) ? 560f : 340f);
-                float rH = 330f;
+                float rW = (cardCount == 3) ? 920f : ((cardCount == 2) ? 620f : 360f);
+                float rH = 355f;
                 Rect routeDialog = new Rect(Screen.width / 2f - rW / 2f, Screen.height / 2f - rH / 2f, rW, rH);
                 if (routeDialog.Contains(mouseGuiPos)) return true;
             }
             else if (GameManager.Instance.CurrentState == GameManager.GameState.Victory)
             {
-                Rect victoryDialog = new Rect(Screen.width / 2f - 270f, Screen.height / 2f - 140f, 540f, 280f);
+                Rect victoryDialog = new Rect(Screen.width / 2f - 300f, Screen.height / 2f - 165f, 600f, 330f);
                 if (victoryDialog.Contains(mouseGuiPos)) return true;
             }
             else if (GameManager.Instance.CurrentState == GameManager.GameState.EventDilemma)
             {
-                Rect dilemmaDialog = new Rect(Screen.width / 2f - 300f, Screen.height / 2f - 200f, 600f, 400f);
+                Rect dilemmaDialog = new Rect(Screen.width / 2f - 330f, Screen.height / 2f - 212f, 660f, 425f);
                 if (dilemmaDialog.Contains(mouseGuiPos)) return true;
             }
             else if (GameManager.Instance.CurrentState == GameManager.GameState.GameOver)
             {
-                Rect gameOverDialog = new Rect(Screen.width / 2f - 270f, Screen.height / 2f - 150f, 540f, 300f);
+                Rect gameOverDialog = new Rect(Screen.width / 2f - 290f, Screen.height / 2f - 158f, 580f, 315f);
                 if (gameOverDialog.Contains(mouseGuiPos)) return true;
             }
         }
@@ -277,26 +360,51 @@ public class UIManager : MonoBehaviour
     {
         if (stylesInitialized) return;
 
+        GameFontTheme.EnsureLoaded();
+        if (GameFontTheme.BodyFont != null)
+        {
+            GUI.skin.font = GameFontTheme.BodyFont;
+        }
+        GUI.skin.label.fontSize = 13;
+        GUI.skin.label.wordWrap = true;
+        GUI.skin.button.fontSize = 12;
+        GUI.skin.box.fontSize = 13;
+        GUI.skin.textField.fontSize = 13;
+        GUI.skin.textField.alignment = TextAnchor.MiddleLeft;
+
+        Font headerFont   = GameFontTheme.HeaderFont;
+        Font badgeFont    = GameFontTheme.HeaderRegularFont;
+        Font bodyFont     = GameFontTheme.BodyFont;
+        Font bodySemiBold = GameFontTheme.BodySemiBoldFont;
+        Font bodyBold     = GameFontTheme.BodyBoldFont;
+
         headerStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 18,
-            fontStyle = FontStyle.Bold,
-            alignment = TextAnchor.MiddleCenter
+            font = headerFont,
+            fontSize = 15,
+            fontStyle = FontStyle.Normal,
+            alignment = TextAnchor.MiddleCenter,
+            wordWrap = false,
+            clipping = TextClipping.Overflow
         };
         headerStyle.normal.textColor = Color.white;
 
         subHeaderStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 13,
-            fontStyle = FontStyle.Bold,
-            alignment = TextAnchor.MiddleLeft
+            font = bodyBold,
+            fontSize = 14,
+            fontStyle = FontStyle.Normal,
+            alignment = TextAnchor.MiddleLeft,
+            wordWrap = false,
+            clipping = TextClipping.Overflow
         };
         subHeaderStyle.normal.textColor = new Color(1.0f, 0.75f, 0.2f); // Wasteland amber
 
         rewardCenteredStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 14,
-            fontStyle = FontStyle.Bold,
+            font = bodyBold,
+            fontSize = 15,
+            fontStyle = FontStyle.Normal,
             alignment = TextAnchor.MiddleCenter,
             wordWrap = true
         };
@@ -304,57 +412,75 @@ public class UIManager : MonoBehaviour
 
         resourceStyle = new GUIStyle(GUI.skin.box)
         {
-            fontSize = 12,
-            fontStyle = FontStyle.Bold,
+            font = bodyBold,
+            fontSize = 13,
+            fontStyle = FontStyle.Normal,
             alignment = TextAnchor.MiddleCenter,
-            richText = true
+            richText = true,
+            wordWrap = false,
+            clipping = TextClipping.Overflow
         };
         resourceStyle.normal.textColor = Color.white;
 
         buttonStyle = new GUIStyle(GUI.skin.button)
         {
-            fontSize = 11,
-            fontStyle = FontStyle.Bold
+            font = bodyBold,
+            fontSize = 12,
+            fontStyle = FontStyle.Normal,
+            wordWrap = false,
+            clipping = TextClipping.Overflow
         };
 
         smallButtonStyle = new GUIStyle(GUI.skin.button)
         {
-            fontSize = 10,
-            fontStyle = FontStyle.Bold
+            font = bodySemiBold,
+            fontSize = 12,
+            fontStyle = FontStyle.Normal,
+            wordWrap = false,
+            clipping = TextClipping.Overflow
         };
 
         boxStyle = new GUIStyle(GUI.skin.box)
         {
-            fontSize = 12
+            font = bodySemiBold,
+            fontSize = 13,
+            wordWrap = false
         };
 
         badgeStyle = new GUIStyle(GUI.skin.button)
         {
+            font = badgeFont,
             fontSize = 13,
-            fontStyle = FontStyle.Bold,
-            alignment = TextAnchor.MiddleCenter
+            fontStyle = FontStyle.Normal,
+            alignment = TextAnchor.MiddleCenter,
+            wordWrap = false
         };
         badgeStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f);
 
         activeBadgeStyle = new GUIStyle(GUI.skin.button)
         {
+            font = badgeFont,
             fontSize = 13,
-            fontStyle = FontStyle.Bold,
-            alignment = TextAnchor.MiddleCenter
+            fontStyle = FontStyle.Normal,
+            alignment = TextAnchor.MiddleCenter,
+            wordWrap = false
         };
         activeBadgeStyle.normal.textColor = Color.yellow;
 
         descTitleStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 13,
-            fontStyle = FontStyle.Bold,
-            alignment = TextAnchor.UpperLeft
+            font = bodyBold,
+            fontSize = 14,
+            fontStyle = FontStyle.Normal,
+            alignment = TextAnchor.UpperLeft,
+            wordWrap = true
         };
         descTitleStyle.normal.textColor = new Color(0.3f, 0.9f, 1f);
 
         descBodyStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 11,
+            font = bodyFont,
+            fontSize = 13,
             wordWrap = true,
             alignment = TextAnchor.UpperLeft
         };
@@ -362,18 +488,35 @@ public class UIManager : MonoBehaviour
 
         placementHintStyle = new GUIStyle(GUI.skin.box)
         {
-            fontSize = 11,
-            fontStyle = FontStyle.Bold,
-            alignment = TextAnchor.MiddleCenter
+            font = bodyBold,
+            fontSize = 12,
+            fontStyle = FontStyle.Normal,
+            alignment = TextAnchor.MiddleCenter,
+            wordWrap = false,
+            clipping = TextClipping.Overflow
         };
 
         panelHeaderStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 12,
-            fontStyle = FontStyle.Bold,
-            alignment = TextAnchor.MiddleLeft
+            font = badgeFont,
+            fontSize = 13,
+            fontStyle = FontStyle.Normal,
+            alignment = TextAnchor.MiddleLeft,
+            wordWrap = false,
+            clipping = TextClipping.Overflow
         };
         panelHeaderStyle.normal.textColor = Color.white;
+
+        singleLineLabelStyle = new GUIStyle(GUI.skin.label)
+        {
+            font = bodySemiBold,
+            fontSize = 12,
+            fontStyle = FontStyle.Normal,
+            alignment = TextAnchor.MiddleLeft,
+            wordWrap = false,
+            clipping = TextClipping.Overflow
+        };
+        singleLineLabelStyle.normal.textColor = Color.white;
 
         stylesInitialized = true;
     }
@@ -387,12 +530,28 @@ public class UIManager : MonoBehaviour
 
         if (GameManager.Instance.CurrentState == GameManager.GameState.MainMenu)
         {
+            CancelDayTransition();
             DrawMainMenuUI();
             return;
         }
 
+        // Intercept left-click while DAY transition is visible so clicking skips immediately without hitting UI beneath
+        Event curEvt = Event.current;
+        if (curEvt != null && curEvt.isMouse)
+        {
+            if (isDayTransitionActive && Time.frameCount > dayTransitionStartFrame && curEvt.type == EventType.MouseDown && curEvt.button == 0)
+            {
+                DismissDayTransitionImmediate();
+                curEvt.Use();
+            }
+            else if (Time.frameCount <= dayTransitionSuppressFrame)
+            {
+                curEvt.Use();
+            }
+        }
+
         // Toggle master HUD button in corner
-        if (GUI.Button(new Rect(Screen.width - 110, 4, 100, 20), isMasterHudVisible ? "👁️ Hide HUD (H)" : "👁️ Show HUD (H)", smallButtonStyle))
+        if (GUI.Button(new Rect(Screen.width - 128, 4, 118, 22), isMasterHudVisible ? "👁️ Hide HUD (H)" : "👁️ Show HUD (H)", smallButtonStyle))
         {
             isMasterHudVisible = !isMasterHudVisible;
         }
@@ -400,7 +559,7 @@ public class UIManager : MonoBehaviour
         // Toggle Dev Tools button in top corner
         bool devUnlocked = GameManager.Instance.isDevModeUnlocked;
         GUI.backgroundColor = devUnlocked ? new Color(0.2f, 0.9f, 0.45f) : (isDevPanelOpen ? new Color(1f, 0.8f, 0.2f) : Color.white);
-        if (GUI.Button(new Rect(Screen.width - 235, 4, 120, 20), devUnlocked ? "🛠️ Dev Tools (ON)" : "🔒 Dev Tools (F12)", smallButtonStyle))
+        if (GUI.Button(new Rect(Screen.width - 274, 4, 140, 22), devUnlocked ? "🛠️ Dev Tools (ON)" : "🔒 Dev Tools (F12)", smallButtonStyle))
         {
             isDevPanelOpen = !isDevPanelOpen;
         }
@@ -409,7 +568,7 @@ public class UIManager : MonoBehaviour
         // Toggle Grid visibility button in top corner
         bool isGridOn = CrossMapVisualizer.Instance == null || CrossMapVisualizer.Instance.isGridVisible;
         GUI.backgroundColor = isGridOn ? new Color(0.3f, 0.85f, 0.5f) : new Color(0.45f, 0.45f, 0.45f);
-        if (GUI.Button(new Rect(Screen.width - 345, 4, 105, 20), isGridOn ? "▦ Grid: ON (G)" : "⬚ Grid: OFF (G)", smallButtonStyle))
+        if (GUI.Button(new Rect(Screen.width - 402, 4, 122, 22), isGridOn ? "▦ Grid: ON (G)" : "⬚ Grid: OFF (G)", smallButtonStyle))
         {
             if (CrossMapVisualizer.Instance != null)
             {
@@ -420,14 +579,18 @@ public class UIManager : MonoBehaviour
 
         // Quit / Exit game button in top corner
         GUI.backgroundColor = new Color(0.9f, 0.35f, 0.35f);
-        if (GUI.Button(new Rect(Screen.width - 455, 4, 100, 20), "🚪 Quit (Esc)", smallButtonStyle))
+        if (GUI.Button(new Rect(Screen.width - 520, 4, 112, 22), "🚪 Quit (Esc)", smallButtonStyle))
         {
             isQuitConfirmOpen = !isQuitConfirmOpen;
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
         }
         GUI.backgroundColor = Color.white;
 
-        if (!isMasterHudVisible) return;
+        if (!isMasterHudVisible)
+        {
+            DrawDayTransitionOverlay();
+            return;
+        }
 
         DrawTopBar();
 
@@ -465,27 +628,96 @@ public class UIManager : MonoBehaviour
         {
             DrawQuitConfirmDialog();
         }
+
+        DrawDayTransitionOverlay();
+    }
+
+    void DrawDayTransitionOverlay()
+    {
+        if (!isDayTransitionActive || dayTransitionAlpha <= 0.005f) return;
+
+        if (blackFadeTexture == null)
+        {
+            blackFadeTexture = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            blackFadeTexture.SetPixel(0, 0, Color.white);
+            blackFadeTexture.Apply();
+        }
+
+        if (dayTransitionTitleStyle == null)
+        {
+            dayTransitionTitleStyle = new GUIStyle(GUI.skin.label)
+            {
+                font = GameFontTheme.HeaderFont,
+                fontSize = 64,
+                fontStyle = FontStyle.Normal,
+                alignment = TextAnchor.MiddleCenter,
+                wordWrap = false,
+                clipping = TextClipping.Overflow
+            };
+            dayTransitionTitleStyle.normal.textColor = Color.white;
+            dayTransitionTitleStyle.hover.textColor = Color.white;
+        }
+
+        if (dayTransitionHintStyle == null)
+        {
+            dayTransitionHintStyle = new GUIStyle(GUI.skin.label)
+            {
+                font = GameFontTheme.BodySemiBoldFont,
+                fontSize = 14,
+                fontStyle = FontStyle.Normal,
+                alignment = TextAnchor.MiddleCenter,
+                wordWrap = false,
+                clipping = TextClipping.Overflow
+            };
+            dayTransitionHintStyle.normal.textColor = Color.white;
+            dayTransitionHintStyle.hover.textColor = Color.white;
+        }
+
+        Color prevColor = GUI.color;
+        Color prevContentColor = GUI.contentColor;
+
+        GUI.contentColor = Color.white;
+        GUI.color = new Color(0f, 0f, 0f, dayTransitionAlpha);
+        GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), blackFadeTexture);
+
+        int dynamicSize = Mathf.Clamp(Mathf.RoundToInt(Screen.height * 0.075f), 44, 72);
+        dayTransitionTitleStyle.fontSize = dynamicSize;
+        GUI.color = new Color(1f, 1f, 1f, dayTransitionAlpha);
+        GUI.Label(new Rect(0f, Screen.height * 0.5f - 54f, Screen.width, 84f), $"DAY {dayTransitionNumber}", dayTransitionTitleStyle);
+
+        GUI.color = new Color(0.68f, 0.72f, 0.78f, dayTransitionAlpha * 0.85f);
+        GUI.Label(new Rect(0f, Screen.height * 0.5f + 42f, Screen.width, 28f), "[ Left-Click to Skip ]", dayTransitionHintStyle);
+
+        GUI.contentColor = prevContentColor;
+        GUI.color = prevColor;
     }
 
     void DrawMainMenuUI()
     {
-        float panelW = 320f;
-        float panelH = 175f;
+        float panelW = 350f;
+        float panelH = 185f;
         float panelX = Screen.width / 2f - panelW / 2f;
         float panelY = Screen.height * 0.65f;
 
         GUI.Box(new Rect(panelX, panelY, panelW, panelH), GUIContent.none, boxStyle);
 
-        GUI.Label(new Rect(panelX, panelY + 12f, panelW, 24f), "LAST BASTION Z", headerStyle);
+        GUIStyle heroTitleStyle = new GUIStyle(headerStyle)
+        {
+            font = GameFontTheme.DisplayFont,
+            fontSize = 20,
+            fontStyle = FontStyle.Normal
+        };
+        GUI.Label(new Rect(panelX, panelY + 10f, panelW, 30f), "LAST BASTION Z", heroTitleStyle);
 
         GUIStyle startBtnStyle = new GUIStyle(buttonStyle)
         {
-            fontSize = 16,
-            fontStyle = FontStyle.Bold
+            font = GameFontTheme.HeaderFont,
+            fontSize = 15,
+            fontStyle = FontStyle.Normal
         };
 
         GUI.backgroundColor = new Color(0.25f, 0.85f, 0.35f);
-        if (GUI.Button(new Rect(panelX + 35f, panelY + 46f, panelW - 70f, 50f), "▶ START GAME", startBtnStyle))
+        if (GUI.Button(new Rect(panelX + 35f, panelY + 48f, panelW - 70f, 52f), "▶ START GAME", startBtnStyle))
         {
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
             GameManager.Instance.StartGameFromMenu();
@@ -493,17 +725,23 @@ public class UIManager : MonoBehaviour
 
         GUIStyle quitBtnStyle = new GUIStyle(buttonStyle)
         {
-            fontSize = 14,
-            fontStyle = FontStyle.Bold
+            font = GameFontTheme.BodyBoldFont,
+            fontSize = 15,
+            fontStyle = FontStyle.Normal
         };
 
         GUI.backgroundColor = new Color(0.85f, 0.25f, 0.25f);
-        if (GUI.Button(new Rect(panelX + 35f, panelY + 106f, panelW - 70f, 44f), "🚪 QUIT GAME", quitBtnStyle))
+        if (GUI.Button(new Rect(panelX + 35f, panelY + 112f, panelW - 70f, 46f), "🚪 QUIT GAME", quitBtnStyle))
         {
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
             QuitGame();
         }
         GUI.backgroundColor = Color.white;
+
+        GUI.color = new Color(0.82f, 0.82f, 0.82f, 0.85f);
+        GUI.Label(new Rect(0f, Screen.height - 28f, Screen.width, 24f),
+            "Fonts: Silkscreen, JetBrains Mono & Pixelify Sans (SIL OFL)", rewardCenteredStyle);
+        GUI.color = Color.white;
     }
 
     void DrawTopBar()
@@ -514,7 +752,7 @@ public class UIManager : MonoBehaviour
         string stageName = GameManager.Instance.GetStageName();
         string stateText = GameManager.Instance.CurrentState.ToString().ToUpper();
 
-        float rightPanelW = 560f;
+        float rightPanelW = 630f;
         float rightPanelX = Screen.width - rightPanelW - 15f;
         float leftLabelW = Mathf.Max(220f, rightPanelX - 25f);
         GUI.Label(new Rect(20, 32, leftLabelW, 32), $"🏰 LAST FORTRESS Z  |  {stageName} ({stateText})", subHeaderStyle);
@@ -526,7 +764,7 @@ public class UIManager : MonoBehaviour
             string supColor = (curSupply >= maxSupply) ? "#ff4d4d" : ((curSupply >= Mathf.FloorToInt(maxSupply * 0.85f)) ? "#ffcc00" : "#66e0ff");
             string supTag = (curSupply >= maxSupply) ? " [MAX]" : "";
             string resText = $"💰 Gold: {ResourceManager.Instance.Gold}   |   🧱 Mats: {ResourceManager.Instance.Materials}   |   💎 Spec: {ResourceManager.Instance.SpecialMaterials}   |   📦 <color={supColor}>SUP: {curSupply}/{maxSupply}{supTag}</color>";
-            GUI.Box(new Rect(rightPanelX, 30, rightPanelW, 34), resText, resourceStyle);
+            GUI.Box(new Rect(rightPanelX, 30, rightPanelW, 36), resText, resourceStyle);
         }
 
         DrawGameSpeedControls();
@@ -535,26 +773,26 @@ public class UIManager : MonoBehaviour
 
     void DrawGameSpeedControls()
     {
-        float panelW = 325f;
-        float panelH = 36f;
+        float panelW = 355f;
+        float panelH = 38f;
         float panelX = Screen.width - panelW - 10f;
         float panelY = 76f;
 
         GUI.Box(new Rect(panelX, panelY, panelW, panelH), GUIContent.none, boxStyle);
-        GUI.Label(new Rect(panelX + 10f, panelY + 6f, 95f, 24f), "⏩ Speed (F):", descTitleStyle);
+        GUI.Label(new Rect(panelX + 10f, panelY + 7f, 118f, 24f), "⏩ Speed (F):", singleLineLabelStyle);
 
         float[] speeds = GameManager.SpeedOptions;
         string[] labels = new string[] { "1x", "1.5x", "2x", "3x" };
-        float btnW = 50f;
+        float btnW = 52f;
         float btnH = 26f;
-        float startX = panelX + 102f;
+        float startX = panelX + 128f;
 
         for (int i = 0; i < speeds.Length; i++)
         {
             bool isSelected = Mathf.Approximately(GameManager.Instance.CurrentGameSpeed, speeds[i]);
             GUI.backgroundColor = isSelected ? new Color(0.25f, 0.9f, 0.4f) : new Color(0.35f, 0.35f, 0.35f);
 
-            if (GUI.Button(new Rect(startX + i * (btnW + 4f), panelY + 5f, btnW, btnH), labels[i], isSelected ? activeBadgeStyle : smallButtonStyle))
+            if (GUI.Button(new Rect(startX + i * (btnW + 4f), panelY + 6f, btnW, btnH), labels[i], isSelected ? activeBadgeStyle : smallButtonStyle))
             {
                 GameManager.Instance.SetGameSpeed(speeds[i]);
             }
@@ -564,9 +802,9 @@ public class UIManager : MonoBehaviour
 
     void DrawVolumeControls()
     {
-        float panelW = 260f;
-        float panelH = 36f;
-        float speedW = 325f;
+        float panelW = 270f;
+        float panelH = 38f;
+        float speedW = 355f;
         float panelX = Screen.width - speedW - 10f - panelW - 10f;
         float panelY = 76f;
 
@@ -577,7 +815,7 @@ public class UIManager : MonoBehaviour
                          (AudioHelper.MasterVolume < 0.35f ? "🔈" :
                          (AudioHelper.MasterVolume < 0.7f ? "🔉" : "🔊"));
         GUI.backgroundColor = AudioHelper.IsMuted ? new Color(1f, 0.35f, 0.35f) : new Color(0.25f, 0.25f, 0.25f);
-        if (GUI.Button(new Rect(panelX + 6f, panelY + 5f, 32f, 26f), volIcon, smallButtonStyle))
+        if (GUI.Button(new Rect(panelX + 6f, panelY + 6f, 34f, 26f), volIcon, smallButtonStyle))
         {
             AudioHelper.ToggleMute();
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
@@ -585,7 +823,7 @@ public class UIManager : MonoBehaviour
         GUI.backgroundColor = Color.white;
 
         // Volume minus button
-        if (GUI.Button(new Rect(panelX + 42f, panelY + 5f, 24f, 26f), "-", smallButtonStyle))
+        if (GUI.Button(new Rect(panelX + 44f, panelY + 6f, 24f, 26f), "-", smallButtonStyle))
         {
             AudioHelper.AdjustMasterVolume(-0.1f);
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
@@ -593,14 +831,14 @@ public class UIManager : MonoBehaviour
 
         // Horizontal Volume Slider
         float curVol = AudioHelper.IsMuted ? 0f : AudioHelper.MasterVolume;
-        float newVol = GUI.HorizontalSlider(new Rect(panelX + 70f, panelY + 11f, 95f, 16f), curVol, 0f, 1f);
+        float newVol = GUI.HorizontalSlider(new Rect(panelX + 72f, panelY + 12f, 96f, 16f), curVol, 0f, 1f);
         if (Mathf.Abs(newVol - curVol) > 0.005f)
         {
             AudioHelper.SetMasterVolume(newVol);
         }
 
         // Volume plus button
-        if (GUI.Button(new Rect(panelX + 170f, panelY + 5f, 24f, 26f), "+", smallButtonStyle))
+        if (GUI.Button(new Rect(panelX + 172f, panelY + 6f, 24f, 26f), "+", smallButtonStyle))
         {
             AudioHelper.AdjustMasterVolume(0.1f);
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
@@ -609,7 +847,7 @@ public class UIManager : MonoBehaviour
         // Volume percentage label / Quick Mute toggle
         string pctText = AudioHelper.IsMuted ? "MUTE" : $"{Mathf.RoundToInt(AudioHelper.MasterVolume * 100f)}%";
         GUI.backgroundColor = AudioHelper.IsMuted ? new Color(1f, 0.35f, 0.35f) : new Color(0.25f, 0.25f, 0.25f);
-        if (GUI.Button(new Rect(panelX + 198f, panelY + 5f, 56f, 26f), pctText, smallButtonStyle))
+        if (GUI.Button(new Rect(panelX + 200f, panelY + 6f, 64f, 26f), pctText, smallButtonStyle))
         {
             AudioHelper.ToggleMute();
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
@@ -621,14 +859,14 @@ public class UIManager : MonoBehaviour
     {
         float menuX = 15f;
         float menuY = 78f;
-        float menuW = 380f;
+        float menuW = 485f;
         float menuH = Mathf.Min(740f, Screen.height - 90f);
 
         // If Build Menu is toggled closed, show open button
         if (!isBuildMenuOpen)
         {
             GUI.backgroundColor = new Color(0.2f, 0.6f, 1f);
-            if (GUI.Button(new Rect(menuX, menuY, 200f, 40f), "▶ 🛠️ Build Menu (TAB)", buttonStyle))
+            if (GUI.Button(new Rect(menuX, menuY, 225f, 42f), "▶ 🛠️ Build Menu (TAB)", buttonStyle))
             {
                 isBuildMenuOpen = true;
             }
@@ -637,7 +875,7 @@ public class UIManager : MonoBehaviour
             // Quick placement info if placing while menu collapsed
             if (PlacementManager.Instance != null && PlacementManager.Instance.isPlacing)
             {
-                GUI.Box(new Rect(menuX, menuY + 48f, 280f, 48f), $"Placing: {GetBuildingDisplayName(PlacementManager.Instance.selectedType)}\nLeft-Click: Place | Right-Click: Cancel", placementHintStyle);
+                GUI.Box(new Rect(menuX, menuY + 50f, 340f, 52f), $"Placing: {GetBuildingDisplayName(PlacementManager.Instance.selectedType)}\nLeft-Click: Place | Right-Click: Cancel", placementHintStyle);
             }
 
             DrawPlanningBottomBar();
@@ -648,20 +886,20 @@ public class UIManager : MonoBehaviour
         GUI.Box(new Rect(menuX, menuY, menuW, menuH), GUIContent.none, boxStyle);
 
         // Header Title (Left-aligned with dedicated style so it never overlaps the Hide button)
-        GUI.Label(new Rect(menuX + 12f, menuY + 4f, menuW - 110f, 22f), "🛠️ BASE DEFENSE ARSENAL", panelHeaderStyle);
+        GUI.Label(new Rect(menuX + 12f, menuY + 4f, menuW - 125f, 24f), "🛠️ BASE DEFENSE ARSENAL", panelHeaderStyle);
 
         // Hide Menu Button at top-right of panel
-        if (GUI.Button(new Rect(menuX + menuW - 95f, menuY + 4f, 88f, 22f), "◀ Hide (TAB)", smallButtonStyle))
+        if (GUI.Button(new Rect(menuX + menuW - 108f, menuY + 4f, 100f, 24f), "◀ Hide (TAB)", smallButtonStyle))
         {
             isBuildMenuOpen = false;
         }
 
         float btnStartX = menuX + 8f;
-        float curY = menuY + 28f;
+        float curY = menuY + 30f;
         float colW = (menuW - 24f) / 2f;
         float badgeW = 36f;
         float btnW = colW - badgeW - 4f;
-        float btnH = 38f;
+        float btnH = 42f;
 
         // --- 📋 1-CLICK AUTO-REBUILD BASE BUTTON (Restores previous day layout) ---
         if (PlacementManager.Instance != null && PlacementManager.Instance.HasSavedLayout())
@@ -812,30 +1050,30 @@ public class UIManager : MonoBehaviour
             if (isDragging)
             {
                 GUI.color = new Color(0.35f, 0.85f, 1.0f);
-                GUI.Label(new Rect(btnStartX + 8, curY + 3, menuW - 32, 19), $"🔵 DRAGGING: {bName} ({queuedCount} Queued)", subHeaderStyle);
+                GUI.Label(new Rect(btnStartX + 8, curY + 4, menuW - 32, 20), $"🔵 DRAGGING: {bName} ({queuedCount} Queued)", subHeaderStyle);
                 GUI.color = Color.white;
-                GUI.Label(new Rect(btnStartX + 8, curY + 23, menuW - 32, 18), "🖱️ Release Left-Click: Place All Queued", descBodyStyle);
+                GUI.Label(new Rect(btnStartX + 8, curY + 24, menuW - 32, 18), "🖱️ Release Left-Click: Place All Queued", singleLineLabelStyle);
                 GUI.color = new Color(1f, 0.7f, 0.7f);
-                GUI.Label(new Rect(btnStartX + 8, curY + 41, menuW - 32, 18), "❌ Right-Click: Cancel Drag Batch", descBodyStyle);
+                GUI.Label(new Rect(btnStartX + 8, curY + 42, menuW - 32, 18), "❌ Right-Click: Cancel Drag Batch", singleLineLabelStyle);
             }
             else
             {
                 GUI.color = Color.green;
                 string deployMode = stored > 0 ? $"[FREE Stock: {stored} Left]" : "[Purchasing New]";
-                GUI.Label(new Rect(btnStartX + 8, curY + 3, menuW - 32, 19), $"📍 PLACING: {bName}", subHeaderStyle);
+                GUI.Label(new Rect(btnStartX + 8, curY + 4, menuW - 32, 20), $"📍 PLACING: {bName}", subHeaderStyle);
                 GUI.color = Color.white;
-                GUI.Label(new Rect(btnStartX + 8, curY + 23, menuW - 32, 18), $"Mode: {deployMode}  |  ❌ R-Click: Cancel", descBodyStyle);
+                GUI.Label(new Rect(btnStartX + 8, curY + 24, menuW - 32, 18), $"Mode: {deployMode}  |  ❌ R-Click: Cancel", singleLineLabelStyle);
                 int maxLimit = Building.GetMaxBuildingPlacementLimit(PlacementManager.Instance.selectedType);
                 int activeCount = Building.GetActiveBuildingCount(PlacementManager.Instance.selectedType);
                 if (maxLimit > 0 && activeCount >= maxLimit)
                 {
                     GUI.color = new Color(1f, 0.4f, 0.4f);
-                    GUI.Label(new Rect(btnStartX + 8, curY + 41, menuW - 32, 18), $"⚠️ Max {maxLimit} Limit Reached ({activeCount}/{maxLimit})!", descBodyStyle);
+                    GUI.Label(new Rect(btnStartX + 8, curY + 42, menuW - 32, 18), $"⚠️ Max {maxLimit} Limit Reached ({activeCount}/{maxLimit})!", singleLineLabelStyle);
                     GUI.color = Color.white;
                 }
                 else
                 {
-                    GUI.Label(new Rect(btnStartX + 8, curY + 41, menuW - 32, 18), "🖱️ Click or Hold-Drag: Multi-Place", descBodyStyle);
+                    GUI.Label(new Rect(btnStartX + 8, curY + 42, menuW - 32, 18), "🖱️ Click or Hold-Drag: Multi-Place", singleLineLabelStyle);
                 }
             }
         }
@@ -846,9 +1084,9 @@ public class UIManager : MonoBehaviour
             GUI.backgroundColor = Color.white;
 
             GUI.color = new Color(1f, 0.4f, 0.4f);
-            GUI.Label(new Rect(btnStartX + 8, curY + 3, menuW - 32, 19), "💥 DEMOLISH / SELL MODE (70% Refund)", subHeaderStyle);
+            GUI.Label(new Rect(btnStartX + 8, curY + 4, menuW - 32, 20), "💥 DEMOLISH / SELL MODE (70% Refund)", subHeaderStyle);
             GUI.color = Color.white;
-            GUI.Label(new Rect(btnStartX + 8, curY + 23, menuW - 32, 26), "🖱️ Left-Click building to sell   |   ❌ Right-Click: Cancel", descBodyStyle);
+            GUI.Label(new Rect(btnStartX + 8, curY + 26, menuW - 32, 22), "🖱️ Left-Click building to sell   |   ❌ Right-Click: Cancel", singleLineLabelStyle);
         }
         else if (PlacementManager.Instance != null && PlacementManager.Instance.currentMode == PlacementManager.PlacementMode.Relocate)
         {
@@ -857,15 +1095,15 @@ public class UIManager : MonoBehaviour
             GUI.backgroundColor = Color.white;
 
             GUI.color = new Color(1f, 0.9f, 0.2f);
-            GUI.Label(new Rect(btnStartX + 8, curY + 3, menuW - 32, 19), "🔧 RELOCATE MODE", subHeaderStyle);
+            GUI.Label(new Rect(btnStartX + 8, curY + 4, menuW - 32, 20), "🔧 RELOCATE MODE", subHeaderStyle);
             GUI.color = Color.white;
-            GUI.Label(new Rect(btnStartX + 8, curY + 23, menuW - 32, 26), "🖱️ Click building to move, then click new cell | Right-Click: Cancel", descBodyStyle);
+            GUI.Label(new Rect(btnStartX + 8, curY + 26, menuW - 32, 22), "🖱️ Click building, then new cell  |  ❌ R-Click: Cancel", singleLineLabelStyle);
         }
         else
         {
             bool crossUnlocked = (GameManager.Instance != null && GameManager.Instance.CurrentDay > 15);
             string sectorInfo = crossUnlocked ? "🔓 Cross Arms: Unlocked (North/South active)" : "🔒 Cross Arms: Locked until Stage 15";
-            GUI.Box(new Rect(btnStartX, curY, menuW - 16f, 44f), $"Click building to place. Stock deploys FREE!\n{sectorInfo}", descBodyStyle);
+            GUI.Box(new Rect(btnStartX, curY, menuW - 16f, 48f), $"Click building to place. Stock deploys FREE!\n{sectorInfo}", descBodyStyle);
         }
 
         DrawPlanningBottomBar();
@@ -952,8 +1190,8 @@ public class UIManager : MonoBehaviour
     void DrawPlanningBottomBar()
     {
         // Start Combat Button (Bottom Right)
-        float startBtnW = 240f;
-        float startBtnH = 50f;
+        float startBtnW = 260f;
+        float startBtnH = 52f;
         float startBtnX = Screen.width - startBtnW - 20f;
         float startBtnY = Screen.height - startBtnH - 20f;
 
@@ -965,25 +1203,33 @@ public class UIManager : MonoBehaviour
         GUI.backgroundColor = Color.white;
 
         // Camera guide hint (Bottom Left/Center)
-        GUI.Box(new Rect(15f, Screen.height - 48, 600, 36), "Controls: WASD: Pan | Scroll: Zoom | V: View | G: Grid | M: Mute | TAB: Menu | H: HUD", boxStyle);
+        GUI.Box(new Rect(15f, Screen.height - 50, 740, 38), "Controls: WASD: Pan | Scroll: Zoom | V: View | G: Grid | M: Mute | TAB: Menu | H: HUD", boxStyle);
     }
 
     public static Rect GetFighterHudButtonRect()
     {
-        return new Rect(20f, Screen.height - 104f, 165f, 84f);
+        return new Rect(20f, Screen.height - 108f, 205f, 88f);
     }
 
     public static Rect GetB2HudButtonRect()
     {
         bool fighterActive = (AirSupportManager.Instance != null && AirSupportManager.Instance.CanOperateFighterInCombat());
-        float x = fighterActive ? 197f : 20f;
-        return new Rect(x, Screen.height - 104f, 165f, 84f);
+        float x = fighterActive ? 237f : 20f;
+        return new Rect(x, Screen.height - 108f, 205f, 88f);
+    }
+
+    public static Rect GetIcbmHudButtonRect()
+    {
+        bool fighterActive = (AirSupportManager.Instance != null && AirSupportManager.Instance.CanOperateFighterInCombat());
+        bool b2Active = (AirSupportManager.Instance != null && AirSupportManager.Instance.CanOperateB2InCombat());
+        float x = 20f + (fighterActive ? 217f : 0f) + (b2Active ? 217f : 0f);
+        return new Rect(x, Screen.height - 108f, 205f, 88f);
     }
 
     void DrawAirSupportTabUI(float startX, float curY, float width, float totalH)
     {
         // Air Support Fleet Selection Cards
-        float cardH = 78f;
+        float cardH = 84f;
         float cardGap = 8f;
 
         bool fighterOwned = (AirSupportManager.Instance != null && AirSupportManager.Instance.IsFighterOwned);
@@ -1003,7 +1249,7 @@ public class UIManager : MonoBehaviour
 
         // Aircraft Icon / Select Button
         GUI.backgroundColor = fighterOwned ? new Color(0.25f, 0.9f, 0.45f) : (isJetSelected ? new Color(0.35f, 0.95f, 1.0f) : new Color(0.45f, 0.55f, 0.65f));
-        if (GUI.Button(new Rect(startX + 8f, curY + 8f, 54f, 62f), "✈️\n\nJET", buttonStyle))
+        if (GUI.Button(new Rect(startX + 8f, curY + 8f, 54f, 68f), "✈️\n\nJET", buttonStyle))
         {
             SelectedAircraft = AircraftType.FighterJet;
             descScrollPos = Vector2.zero;
@@ -1011,13 +1257,13 @@ public class UIManager : MonoBehaviour
         }
 
         // Aircraft Details
-        GUI.Label(new Rect(startX + 70f, curY + 8f, width - 160f, 20f), $"FIGHTER{fighterStarBadge}", subHeaderStyle);
-        GUI.Label(new Rect(startX + 70f, curY + 28f, width - 160f, 18f), $"• {fighterW}x{fighterL} ({fighterPlanes} Plane{(fighterPlanes > 1 ? "s" : "")}, 7s CD)", descBodyStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 8f, width - 172f, 22f), $"FIGHTER{fighterStarBadge}", subHeaderStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 32f, width - 172f, 20f), $"• {fighterW}x{fighterL} ({fighterPlanes} Plane{(fighterPlanes > 1 ? "s" : "")}, 7s CD)", singleLineLabelStyle);
         GUI.color = fighterOwned ? new Color(0.35f, 1.0f, 0.55f) : (canAffordFighter ? new Color(0.45f, 1.0f, 0.75f) : new Color(1.0f, 0.45f, 0.45f));
         string fighterCostLabel = fighterOwned
             ? "✓ OWNED — Combat Icon Ready!"
             : (isDevFree ? "🔩 Cost: FREE [DEV]" : $"🔩 Cost: {AirSupportManager.FIGHTER_MATERIAL_COST} Materials");
-        GUI.Label(new Rect(startX + 70f, curY + 46f, width - 160f, 18f), fighterCostLabel, descBodyStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 54f, width - 172f, 20f), fighterCostLabel, singleLineLabelStyle);
         GUI.color = Color.white;
 
         // Purchase / Owned Action Button on right
@@ -1027,7 +1273,7 @@ public class UIManager : MonoBehaviour
         string fighterBtnText = fighterOwned
             ? "OWNED\n✓ READY"
             : (isDevFree ? "BUILD\nFREE" : $"BUILD\n{AirSupportManager.FIGHTER_MATERIAL_COST} M");
-        if (GUI.Button(new Rect(startX + width - 86f, curY + 18f, 78f, 42f), fighterBtnText, buttonStyle))
+        if (GUI.Button(new Rect(startX + width - 96f, curY + 20f, 88f, 44f), fighterBtnText, buttonStyle))
         {
             SelectedAircraft = AircraftType.FighterJet;
             descScrollPos = Vector2.zero;
@@ -1054,7 +1300,7 @@ public class UIManager : MonoBehaviour
 
         // Aircraft Icon / Select Button
         GUI.backgroundColor = b2Owned ? new Color(0.25f, 0.9f, 0.45f) : (isB2Selected ? new Color(0.35f, 0.95f, 1.0f) : new Color(0.38f, 0.42f, 0.48f));
-        if (GUI.Button(new Rect(startX + 8f, curY + 8f, 54f, 62f), "💣\n\nB-2", buttonStyle))
+        if (GUI.Button(new Rect(startX + 8f, curY + 8f, 54f, 68f), "💣\n\nB-2", buttonStyle))
         {
             SelectedAircraft = AircraftType.B2Bomber;
             descScrollPos = Vector2.zero;
@@ -1063,13 +1309,13 @@ public class UIManager : MonoBehaviour
 
         // Aircraft Details
         string b2Tag = b2Owned ? " [READY]" : "";
-        GUI.Label(new Rect(startX + 70f, curY + 8f, width - 160f, 20f), $"B-2 STEALTH{b2Tag}", subHeaderStyle);
-        GUI.Label(new Rect(startX + 70f, curY + 28f, width - 160f, 18f), $"• {AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS} ({AirSupportManager.B2_BOMB_COUNT} Bombs, {AirSupportManager.B2_COOLDOWN:0}s CD)", descBodyStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 8f, width - 172f, 22f), $"B-2 STEALTH{b2Tag}", subHeaderStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 32f, width - 172f, 20f), $"• {AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS} ({AirSupportManager.B2_BOMB_COUNT} Bombs, {AirSupportManager.B2_COOLDOWN:0}s CD)", singleLineLabelStyle);
         GUI.color = b2Owned ? new Color(0.35f, 1.0f, 0.55f) : (canAffordB2 ? new Color(0.45f, 1.0f, 0.75f) : new Color(1.0f, 0.45f, 0.45f));
         string b2CostLabel = b2Owned
             ? "✓ OWNED — Tactical HUD Icon Ready!"
             : (isDevFree ? "🔩 Cost: FREE [DEV]" : $"🔩 Cost: {AirSupportManager.B2_MATERIAL_COST}M + {AirSupportManager.B2_SPECIAL_COST} 💎 Spec");
-        GUI.Label(new Rect(startX + 70f, curY + 46f, width - 160f, 18f), b2CostLabel, descBodyStyle);
+        GUI.Label(new Rect(startX + 70f, curY + 54f, width - 172f, 20f), b2CostLabel, singleLineLabelStyle);
         GUI.color = Color.white;
 
         // Purchase / Owned Action Button on right
@@ -1079,7 +1325,7 @@ public class UIManager : MonoBehaviour
         string b2BtnText = b2Owned
             ? "OWNED\n✓ READY"
             : (isDevFree ? "BUILD\nFREE" : $"BUILD\n{AirSupportManager.B2_MATERIAL_COST}M+{AirSupportManager.B2_SPECIAL_COST}💎");
-        if (GUI.Button(new Rect(startX + width - 86f, curY + 18f, 78f, 42f), b2BtnText, buttonStyle))
+        if (GUI.Button(new Rect(startX + width - 96f, curY + 20f, 88f, 44f), b2BtnText, buttonStyle))
         {
             SelectedAircraft = AircraftType.B2Bomber;
             descScrollPos = Vector2.zero;
@@ -1134,9 +1380,9 @@ public class UIManager : MonoBehaviour
             body =
                 b2StatusLine +
                 $"• Strike Zone: {AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS} Blocks ({AirSupportManager.B2_BOMB_COUNT} Heavy Bombs, 5x4 each)\n" +
-                $"• Bomb Damage: {AirSupportManager.B2_BOMB_DAMAGE:0} AOE Dmg/Target (Lighter than ICBM 1,700)\n" +
-                $"• Targeting: Manual ICBM-Style [E] | {AirSupportManager.B2_COOLDOWN:0}s CD | ~1.7s Lead Time\n" +
-                "• Flight Profile: Heavy Stealth Glide (Left → Right, Slower & Larger than Fighter)";
+                $"• Bomb Damage: {AirSupportManager.B2_BOMB_DAMAGE:0} AOE Dmg/Target\n" +
+                $"• Targeting: Manual Strike [E] | {AirSupportManager.B2_COOLDOWN:0}s CD | ~1.7s Lead Time\n" +
+                "• Flight Profile: Heavy Stealth Glide (Left → Right)";
         }
 
         float contentW = viewW - 16f;
@@ -1173,7 +1419,7 @@ public class UIManager : MonoBehaviour
         else
         {
             upgPreviewText = b2Owned
-                ? $"✓ READY: Unlike Fighter, B-2 does NOT auto-repeat — aim manually each {AirSupportManager.B2_COOLDOWN:0}s cooldown."
+                ? $"✓ READY: Single-pass carpet strike — aim manually each {AirSupportManager.B2_COOLDOWN:0}s cooldown."
                 : "ℹ️ Build B-2 above (450M + 5 Special), then click the B-2 Icon in Combat to drop 3 bombs.";
             upgPreviewH = Mathf.Max(20f, descBodyStyle.CalcHeight(new GUIContent(upgPreviewText), contentW));
             upgSectionH = 8f + upgPreviewH + 4f;
@@ -1406,7 +1652,7 @@ public class UIManager : MonoBehaviour
                 float sniperInterval = (sniperLv >= 3) ? 1.25f : 1.0f;
                 float sniperDps = sniperDmg / sniperInterval;
                 string sniperStars = sniperLv > 0 ? $" [Lv.{sniperLv}/3 {new string('★', sniperLv)}]" : " [Lv.0/3]";
-                title = $"🎯 SNIPER'S NEST{sniperStars} (2x1 Camo Tent)";
+                title = $"🎯 SNIPER'S NEST{sniperStars}";
                 int sniperActive = Building.GetActiveBuildingCount(Building.BuildingType.SniperTower);
                 int sniperLimit = Building.GetMaxBuildingPlacementLimit(Building.BuildingType.SniperTower);
                 int activeSnipers = Building.CountActiveSnipers();
@@ -1497,8 +1743,8 @@ public class UIManager : MonoBehaviour
                     tankCapNotice +
                     "• Cost: 600 Gold, 200 Materials | SUP: 6 | Size: 2x2\n" +
                     "• Spawns: Light Tank every 22.0s (Max: 4 Tanks)\n" +
-                    "• Attack: 4.0s / Shot | 3x3 Cells AOE Blast\n" +
-                    "• DPS: 100 DPS (400 dmg/shot — 3x Soldier DPS)\n" +
+                    "• Attack: 4.0s / Shot | Circular AOE (3x3 Eq. Area)\n" +
+                    "• DPS: 100 DPS (400 dmg/shot)\n" +
                     "• Speed: 1.1 m/s (Armored vehicle)\n" +
                     "★ Role: Heavy AOE artillery obliterates hordes.";
                 break;
@@ -1518,8 +1764,8 @@ public class UIManager : MonoBehaviour
                     stockNotice +
                     foundryCapNotice +
                     "• Cost: 900G, 350M, 4 💎 Spec | SUP: 15 | 3x4\n" +
-                    "• Spawns: ICBM Launcher (Max Limit: 1)\n" +
-                    "• Control: L-Click Truck -> L-Click Target\n" +
+                    "• Spawns: 1 ICBM Launcher\n" +
+                    "• Control: Press [R] or L-Click Truck -> L-Click Target\n" +
                     "• Stats: 85 DPS | 20.0s Reload (1,700 Dmg)\n" +
                     "• Blast Radius: Global Range | 8x8 Circular AOE\n" +
                     "★ Role: Tactical nuclear strike across map.";
@@ -1548,7 +1794,7 @@ public class UIManager : MonoBehaviour
                     "• Attack: Heavy Fire (1.00s interval | 14m Range)\n" +
                     "• Damage: 75.0 dmg / shot (75.0 DPS)\n" +
                     "• Health: 160 HP | Stationary Steel Tower\n" +
-                    "★ Tradeoff: 2x damage, but no pierce & stationary.";
+                    "★ Role: High-damage stationary watchtower (Single-target).";
                 break;
 
             case Building.BuildingType.AirBase:
@@ -1560,13 +1806,12 @@ public class UIManager : MonoBehaviour
                 string airBaseCapNotice = (airBaseActive >= 1)
                     ? "<color=#ff5555>• Placement Limit: 1/1 Placed (MAX REACHED)</color>\n"
                     : "• Placement Limit: Max 1 Base on Map (0/1)\n";
-                title = "🛫 AIR BASE (Air Traffic Control)";
+                title = "🛫 AIR BASE (Air Command Facility)";
                 body =
                     airUnlockStatus +
                     stockNotice +
                     airBaseCapNotice +
                     "• Cost: 1,500 Gold, 500 Materials | SUP: 0 | Size: 4x5\n" +
-                    "• 3D Model: ATC Tower (Air Command Facility)\n" +
                     "• Feature: Unlocks [✈️ Air Base] Tab in Menu\n" +
                     "• Available Aircraft: Fighter Jet & B-2 Bomber\n" +
                     "• Fleet Cost: Materials (Fighter) & 💎 Special (B-2)\n" +
@@ -1583,8 +1828,8 @@ public class UIManager : MonoBehaviour
     void DrawCombatUI()
     {
         // Combat status box
-        float boxW = 440f;
-        float boxH = 92f;
+        float boxW = 520f;
+        float boxH = 96f;
         float boxX = Screen.width / 2f - boxW / 2f;
         float boxY = 78f;
 
@@ -1598,9 +1843,9 @@ public class UIManager : MonoBehaviour
             string supTag = (curSup >= Soldier.MAX_SUPPLY) ? $"  |  <color=#ff4d4d>SUP: {Soldier.MAX_SUPPLY} (CAP)</color>" : $"  |  SUP: {curSup}/{Soldier.MAX_SUPPLY}";
             int totalBosses = WaveManager.Instance.TotalBossesInCurrentWave;
             string bossTag = (totalBosses > 0) ? $"  |  💀 Tyrants: {totalBosses}" : "";
-            GUI.Label(new Rect(boxX + 10, boxY + 28, boxW - 20, 25), $"Zombies: {WaveManager.Instance.zombiesRemaining}/{WaveManager.Instance.totalZombiesInWave}{bossTag}{supTag}", subHeaderStyle);
+            GUI.Label(new Rect(boxX + 12, boxY + 30, boxW - 24, 26), $"Zombies: {WaveManager.Instance.zombiesRemaining}/{WaveManager.Instance.totalZombiesInWave}{bossTag}{supTag}", subHeaderStyle);
             float progress = (float)(WaveManager.Instance.totalZombiesInWave - WaveManager.Instance.zombiesRemaining) / Mathf.Max(1, WaveManager.Instance.totalZombiesInWave);
-            GUI.HorizontalSlider(new Rect(boxX + 15, boxY + 56, boxW - 30, 20), progress, 0f, 1f);
+            GUI.HorizontalSlider(new Rect(boxX + 15, boxY + 60, boxW - 30, 20), progress, 0f, 1f);
         }
 
         // Combat Air Support Icon Button (Shown once Fighter is built & Air Base is active)
@@ -1646,9 +1891,9 @@ public class UIManager : MonoBehaviour
             if (air.IsTargetingFighter)
             {
                 GUI.backgroundColor = new Color(0.85f, 0.25f, 0.12f, 0.92f);
-                GUI.Box(new Rect(Screen.width / 2f - 240f, boxY + boxH + 8f, 480f, 34f),
+                GUI.Box(new Rect(Screen.width / 2f - 370f, boxY + boxH + 8f, 740f, 36f),
                     $"🎯 FIGHTER STRIKE ({fWidth}x{fLength} Blocks) — Left-Click Battlefield to Confirm | Right-Click to Cancel",
-                    subHeaderStyle);
+                    placementHintStyle);
                 GUI.backgroundColor = Color.white;
             }
         }
@@ -1693,9 +1938,48 @@ public class UIManager : MonoBehaviour
             {
                 float estEta = AirSupportManager.EstimateB2ArrivalTime(air.LastB2HoverPosition);
                 GUI.backgroundColor = new Color(0.88f, 0.28f, 0.10f, 0.92f);
-                GUI.Box(new Rect(Screen.width / 2f - 295f, boxY + boxH + 8f, 590f, 34f),
+                GUI.Box(new Rect(Screen.width / 2f - 370f, boxY + boxH + 8f, 740f, 36f),
                     $"💣 B-2 ({AirSupportManager.B2_WIDTH_BLOCKS}x{AirSupportManager.B2_LENGTH_BLOCKS}, ETA ~{estEta:0.0}s from West Edge) — Aim Ahead! | L-Click: Bomb | R-Click: Cancel",
-                    subHeaderStyle);
+                    placementHintStyle);
+                GUI.backgroundColor = Color.white;
+            }
+        }
+
+        // Combat ICBM Launcher Icon Button [R] (Shown once ICBM Launcher is deployed on the map)
+        Soldier primaryIcbm = Soldier.GetPrimaryICBMLauncher();
+        if (primaryIcbm != null)
+        {
+            Rect icbmRect = GetIcbmHudButtonRect();
+            bool isTargetingIcbm = (Soldier.ActiveTargetingICBM != null);
+            string icbmStatusLine;
+            if (isTargetingIcbm)
+            {
+                GUI.backgroundColor = new Color(1.0f, 0.28f, 0.12f, 0.98f);
+                icbmStatusLine = "🎯 AIMING 8x8 NUKE\nL-Click Fire (R-Cancel)";
+            }
+            else if (primaryIcbm.ICBMCooldownRemaining > 0f)
+            {
+                GUI.backgroundColor = new Color(0.38f, 0.38f, 0.42f, 0.92f);
+                icbmStatusLine = $"⏳ RELOADING\nCD: {primaryIcbm.ICBMCooldownRemaining:0.0}s";
+            }
+            else
+            {
+                GUI.backgroundColor = new Color(0.20f, 0.78f, 0.35f, 0.96f);
+                icbmStatusLine = "✓ READY (8x8 AOE)\n[CLICK OR PRESS R]";
+            }
+
+            if (GUI.Button(icbmRect, $"🚀 ICBM [R]\n{icbmStatusLine}", buttonStyle))
+            {
+                Soldier.TogglePrimaryICBMTargeting();
+            }
+            GUI.backgroundColor = Color.white;
+
+            if (isTargetingIcbm)
+            {
+                GUI.backgroundColor = new Color(0.92f, 0.20f, 0.10f, 0.92f);
+                GUI.Box(new Rect(Screen.width / 2f - 370f, boxY + boxH + 8f, 740f, 36f),
+                    "🚀 ICBM NUCLEAR STRIKE (8x8 AOE) — L-Click Battlefield to Fire | R-Click or [R] to Cancel",
+                    placementHintStyle);
                 GUI.backgroundColor = Color.white;
             }
         }
@@ -1703,8 +1987,8 @@ public class UIManager : MonoBehaviour
 
     void DrawRewardUI()
     {
-        float dialogW = 540f;
-        float dialogH = 240f;
+        float dialogW = 600f;
+        float dialogH = 255f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
         float dialogY = Screen.height / 2f - dialogH / 2f;
 
@@ -1716,24 +2000,42 @@ public class UIManager : MonoBehaviour
         int goldReward = ResourceManager.GetStageGoldReward(day);
         int matReward = ResourceManager.GetStageMaterialReward(day);
 
-        GUI.Label(new Rect(dialogX + 20, dialogY + 42, dialogW - 40, 32), $"Stage {day} Victory! Defense Line Held.", headerStyle);
+        GUI.Label(new Rect(dialogX + 20, dialogY + 42, dialogW - 40, 34), $"Stage {day} Victory! Defense Line Held.", headerStyle);
 
-        string bonusTag = isElite
-            ? "(2x ELITE BONUS!)"
-            : (day == 15 ? "(+200G WAVE 15 MILESTONE BONUS!)" : (day <= 4 ? "(+44% EARLY BONUS!)" : ""));
+        string milestoneTag = (day == 30)
+            ? "+1,000G WAVE 30 MILESTONE BONUS!"
+            : (day == 15 ? "+200G WAVE 15 MILESTONE BONUS!" : "");
 
-        GUI.Label(new Rect(dialogX + 20, dialogY + 82, dialogW - 40, 28), $"Rewards Earned: +{goldReward} Gold, +{matReward} Materials", rewardCenteredStyle);
+        string bonusTag;
+        if (isElite && !string.IsNullOrEmpty(milestoneTag))
+        {
+            bonusTag = $"(2x ELITE + {milestoneTag})";
+        }
+        else if (isElite)
+        {
+            bonusTag = "(2x ELITE BONUS!)";
+        }
+        else if (!string.IsNullOrEmpty(milestoneTag))
+        {
+            bonusTag = $"({milestoneTag})";
+        }
+        else
+        {
+            bonusTag = (day <= 4) ? "(+44% EARLY BONUS!)" : "";
+        }
+
+        GUI.Label(new Rect(dialogX + 20, dialogY + 84, dialogW - 40, 30), $"Rewards Earned: +{goldReward} Gold, +{matReward} Materials", rewardCenteredStyle);
 
         if (!string.IsNullOrEmpty(bonusTag))
         {
             Color prevC = GUI.color;
             GUI.color = new Color(0.45f, 1.0f, 0.55f);
-            GUI.Label(new Rect(dialogX + 20, dialogY + 112, dialogW - 40, 28), bonusTag, rewardCenteredStyle);
+            GUI.Label(new Rect(dialogX + 20, dialogY + 118, dialogW - 40, 28), bonusTag, rewardCenteredStyle);
             GUI.color = prevC;
         }
 
         GUI.backgroundColor = Color.cyan;
-        if (GUI.Button(new Rect(dialogX + 90, dialogY + 158, dialogW - 180, 48), "PROCEED TO NEXT STAGE ➡️", buttonStyle))
+        if (GUI.Button(new Rect(dialogX + 100, dialogY + 168, dialogW - 200, 50), "PROCEED TO NEXT STAGE ➡️", buttonStyle))
         {
             GameManager.Instance.ProceedToNextDay();
         }
@@ -1742,8 +2044,8 @@ public class UIManager : MonoBehaviour
 
     void DrawEventDilemmaUI()
     {
-        float dialogW = 580f;
-        float dialogH = 390f;
+        float dialogW = 660f;
+        float dialogH = 425f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
         float dialogY = Screen.height / 2f - dialogH / 2f;
 
@@ -1751,7 +2053,7 @@ public class UIManager : MonoBehaviour
         if (dilemmaSys == null || dilemmaSys.currentEvent == null)
         {
             GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), "🎲 EVENT IN PROGRESS", boxStyle);
-            if (GUI.Button(new Rect(dialogX + dialogW / 2f - 110f, dialogY + 160f, 220f, 45f), "CONTINUE TO BASE ➡️", buttonStyle))
+            if (GUI.Button(new Rect(dialogX + dialogW / 2f - 125f, dialogY + 170f, 250f, 48f), "CONTINUE TO BASE ➡️", buttonStyle))
             {
                 GameManager.Instance.SetState(GameManager.GameState.Planning);
             }
@@ -1760,12 +2062,12 @@ public class UIManager : MonoBehaviour
 
         if (dilemmaSys.isShowingOutcome)
         {
-            GUI.Box(new Rect(dialogX, dialogY, dialogW, 280f), "📋 EVENT RESOLUTION", boxStyle);
-            GUI.Label(new Rect(dialogX + 20f, dialogY + 38f, dialogW - 40f, 30f), dilemmaSys.currentEvent.title, headerStyle);
-            GUI.Label(new Rect(dialogX + 30f, dialogY + 85f, dialogW - 60f, 85f), dilemmaSys.lastOutcomeMessage, descBodyStyle);
+            GUI.Box(new Rect(dialogX, dialogY, dialogW, 300f), "📋 EVENT RESOLUTION", boxStyle);
+            GUI.Label(new Rect(dialogX + 20f, dialogY + 40f, dialogW - 40f, 32f), dilemmaSys.currentEvent.title, headerStyle);
+            GUI.Label(new Rect(dialogX + 30f, dialogY + 88f, dialogW - 60f, 100f), dilemmaSys.lastOutcomeMessage, descBodyStyle);
 
             GUI.backgroundColor = new Color(0.2f, 0.8f, 0.4f);
-            if (GUI.Button(new Rect(dialogX + dialogW / 2f - 130f, dialogY + 195f, 260f, 48f), "PROCEED TO BASE PLANNING ➡️", buttonStyle))
+            if (GUI.Button(new Rect(dialogX + dialogW / 2f - 145f, dialogY + 210f, 290f, 50f), "PROCEED TO BASE PLANNING ➡️", buttonStyle))
             {
                 dilemmaSys.isShowingOutcome = false;
                 GameManager.Instance.SetState(GameManager.GameState.Planning);
@@ -1775,10 +2077,10 @@ public class UIManager : MonoBehaviour
         else
         {
             GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), "🎲 WASTELAND DILEMMA EVENT", boxStyle);
-            GUI.Label(new Rect(dialogX + 20f, dialogY + 30f, dialogW - 40f, 28f), dilemmaSys.currentEvent.title, headerStyle);
-            GUI.Label(new Rect(dialogX + 25f, dialogY + 65f, dialogW - 50f, 65f), dilemmaSys.currentEvent.description, descBodyStyle);
+            GUI.Label(new Rect(dialogX + 20f, dialogY + 32f, dialogW - 40f, 30f), dilemmaSys.currentEvent.title, headerStyle);
+            GUI.Label(new Rect(dialogX + 25f, dialogY + 70f, dialogW - 50f, 75f), dilemmaSys.currentEvent.description, descBodyStyle);
 
-            float choiceY = dialogY + 140f;
+            float choiceY = dialogY + 152f;
             for (int i = 0; i < dilemmaSys.currentEvent.choices.Length; i++)
             {
                 var choice = dilemmaSys.currentEvent.choices[i];
@@ -1789,7 +2091,7 @@ public class UIManager : MonoBehaviour
                 }
 
                 GUI.backgroundColor = canAfford ? new Color(0.25f, 0.75f, 0.95f) : new Color(0.5f, 0.5f, 0.5f);
-                if (GUI.Button(new Rect(dialogX + 25f, choiceY, 235f, 46f), choice.buttonText, buttonStyle))
+                if (GUI.Button(new Rect(dialogX + 25f, choiceY, 260f, 48f), choice.buttonText, buttonStyle))
                 {
                     if (canAfford)
                     {
@@ -1798,27 +2100,27 @@ public class UIManager : MonoBehaviour
                 }
                 GUI.backgroundColor = Color.white;
 
-                GUI.Label(new Rect(dialogX + 270f, choiceY + 4f, dialogW - 290f, 42f), choice.description, descBodyStyle);
-                choiceY += 56f;
+                GUI.Label(new Rect(dialogX + 298f, choiceY + 2f, dialogW - 320f, 48f), choice.description, descBodyStyle);
+                choiceY += 60f;
             }
         }
     }
 
     void DrawGameOverUI()
     {
-        float dialogW = 520f;
-        float dialogH = 280f;
+        float dialogW = 580f;
+        float dialogH = 315f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
         float dialogY = Screen.height / 2f - dialogH / 2f;
 
         GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), "💀 THE LAST FORTRESS HAS FALLEN", boxStyle);
-        GUI.Label(new Rect(dialogX + 20f, dialogY + 45f, dialogW - 40f, 32f), "FORTRESS DEFENSES BREACHED!", headerStyle);
+        GUI.Label(new Rect(dialogX + 20f, dialogY + 46f, dialogW - 40f, 34f), "FORTRESS DEFENSES BREACHED!", headerStyle);
 
         int reachedStage = GameManager.Instance != null ? GameManager.Instance.CurrentDay : 1;
-        GUI.Label(new Rect(dialogX + 30f, dialogY + 95f, dialogW - 60f, 50f), $"The zombie horde overwhelmed your barricades and destroyed the fortress core.\nYou survived until Stage {reachedStage}.\nWill you take command again and rebuild humanity's bastion?", descBodyStyle);
+        GUI.Label(new Rect(dialogX + 30f, dialogY + 95f, dialogW - 60f, 80f), $"The zombie horde overwhelmed your barricades and destroyed the fortress core.\nYou survived until Stage {reachedStage}.\nWill you take command again and rebuild humanity's bastion?", descBodyStyle);
 
-        Rect restartRect = new Rect(dialogX + 35f, dialogY + 185f, 225f, 50f);
-        Rect quitRect = new Rect(dialogX + 280f, dialogY + 185f, 225f, 50f);
+        Rect restartRect = new Rect(dialogX + 40f, dialogY + 215f, 240f, 52f);
+        Rect quitRect = new Rect(dialogX + 300f, dialogY + 215f, 240f, 52f);
         bool triggerRestart = false;
 
         Event e = Event.current;
@@ -1873,20 +2175,20 @@ public class UIManager : MonoBehaviour
         bool showEventRoute = (GameManager.Instance != null && GameManager.Instance.isEventRouteAvailable);
 
         int cardCount = 1 + (showEliteRoute ? 1 : 0) + (showEventRoute ? 1 : 0);
-        float cardW = 240f;
-        float cardH = 195f;
+        float cardW = 275f;
+        float cardH = 215f;
         float spacing = 20f;
         float totalCardsW = (cardCount * cardW) + ((cardCount - 1) * spacing);
-        float dialogW = (cardCount == 3) ? 820f : ((cardCount == 2) ? 560f : 340f);
-        float dialogH = 330f;
+        float dialogW = (cardCount == 3) ? 920f : ((cardCount == 2) ? 620f : 360f);
+        float dialogH = 355f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
         float dialogY = Screen.height / 2f - dialogH / 2f;
 
         GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), $"🗺️ {GameManager.Instance.GetStageName().ToUpper()}", boxStyle);
-        GUI.Label(new Rect(dialogX + 20, dialogY + 35, dialogW - 40, 30), "Choose your strategic route for this stage:", headerStyle);
+        GUI.Label(new Rect(dialogX + 20, dialogY + 35, dialogW - 40, 32), "Choose your strategic route for this stage:", headerStyle);
 
         float startX = dialogX + (dialogW - totalCardsW) / 2f;
-        float routeY = dialogY + 80f;
+        float routeY = dialogY + 84f;
         float curCardX = startX;
 
         // 1. Standard Battle Route (Always available)
@@ -1910,8 +2212,8 @@ public class UIManager : MonoBehaviour
 
     void DrawWave30MandatoryRouteUI()
     {
-        float dialogW = 600f;
-        float dialogH = 345f;
+        float dialogW = 660f;
+        float dialogH = 365f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
         float dialogY = Screen.height / 2f - dialogH / 2f;
 
@@ -1927,45 +2229,51 @@ public class UIManager : MonoBehaviour
 
         GUIStyle climaxTitleStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 15,
-            fontStyle = FontStyle.Bold,
+            font = GameFontTheme.HeaderRegularFont,
+            fontSize = 12,
+            fontStyle = FontStyle.Normal,
             alignment = TextAnchor.MiddleCenter,
-            wordWrap = false
+            wordWrap = false,
+            clipping = TextClipping.Overflow
         };
         climaxTitleStyle.normal.textColor = new Color(1f, 0.85f, 0.2f);
         string subTitle = isStage30Gatekeeper
             ? "⚡ CLEAR STAGE 30 TO UNLOCK AIR BASE & APOCALYPSE CITY!"
             : "⚡ FINAL CLIMAX: SURVIVE THE ULTIMATE HORDE INVASION";
-        GUI.Label(new Rect(dialogX + 15, dialogY + 38, dialogW - 30, 28), subTitle, climaxTitleStyle);
+        GUI.Label(new Rect(dialogX + 15, dialogY + 38, dialogW - 30, 30), subTitle, climaxTitleStyle);
 
         GUIStyle bodyStyle = new GUIStyle(descBodyStyle)
         {
-            fontSize = 12,
+            fontSize = 14,
             richText = true,
             wordWrap = true
         };
 
         string goalLine = isStage30Gatekeeper
-            ? "• <b>Unlock Reward</b>: Unlocks <b>Air Base (Fighter & B-2)</b> & <b>Post-Apocalypse City (Stages 31–40)</b>!"
+            ? "• <b>Unlock Reward</b>: Unlocks <b>Air Base (Fighter & B-2)</b>, <b>City (31–40)</b> & <b>+1,000G Bonus</b>!"
             : "• <b>Final Stand</b>: Eliminate all hostiles to win the 40-Stage Campaign!";
+
+        string surgeLine = isStage30Gatekeeper
+            ? "• <b>+20% Surge Horde Size</b>: +20% more zombies swarming all lanes!\n"
+            : "• <b>Apocalypse Horde Surge</b>: +20% (Stg 26+), +35% Zombies & +20% Spawn Speed (Stg 31+)!\n";
 
         string alertText =
             $"<color=#ff6666><b>CRITICAL ALERT: WAVE {curDay} FORCES ELITE ASSAULT MODE!</b></color>\n\n" +
             "• <b>2X Elite Replacement Rate</b>: 36% of zombies are upgraded to Elite!\n" +
-            "• <b>+20% Surge Horde Size</b>: +20% more zombies swarming all lanes!\n" +
+            surgeLine +
             "• <b>Tyrant Boss Alpha</b>: Bosses will ONE-SHOT SMG troopers!\n" +
             goalLine;
 
-        GUI.Label(new Rect(dialogX + 30, dialogY + 76, dialogW - 60, 155), alertText, bodyStyle);
+        GUI.Label(new Rect(dialogX + 30, dialogY + 78, dialogW - 60, 175), alertText, bodyStyle);
 
         GUIStyle engageBtnStyle = new GUIStyle(buttonStyle)
         {
-            fontSize = 14,
+            fontSize = 16,
             fontStyle = FontStyle.Bold
         };
 
         GUI.backgroundColor = new Color(1.0f, 0.22f, 0.15f);
-        if (GUI.Button(new Rect(dialogX + 50, dialogY + 252, dialogW - 100, 52), "💀 ENGAGE FINAL ELITE HORDE (2X ELITE)", engageBtnStyle))
+        if (GUI.Button(new Rect(dialogX + 50, dialogY + 268, dialogW - 100, 54), "💀 ENGAGE FINAL ELITE HORDE (2X ELITE)", engageBtnStyle))
         {
             AudioHelper.PlaySound(SoundEffect.EventAlert, 1.0f);
             GameManager.Instance.SelectEliteBattleRoute();
@@ -1976,11 +2284,11 @@ public class UIManager : MonoBehaviour
     void DrawBattleRouteCard(float x, float y, float w, float h)
     {
         GUI.Box(new Rect(x, y, w, h), GUIContent.none, boxStyle);
-        GUI.Label(new Rect(x + 10, y + 10, w - 20, 25), "⚔️ BATTLE ROUTE", subHeaderStyle);
-        GUI.Label(new Rect(x + 10, y + 40, w - 20, 80), "Engage regular zombie forces.\nSafe & reliable source of\nGold & Building Materials.");
+        GUI.Label(new Rect(x + 12, y + 10, w - 24, 26), "⚔️ BATTLE ROUTE", subHeaderStyle);
+        GUI.Label(new Rect(x + 12, y + 40, w - 24, 100), "Engage regular zombie forces.\nSafe & reliable source of\nGold & Building Materials.", descBodyStyle);
 
         GUI.backgroundColor = new Color(0.9f, 0.4f, 0.2f);
-        if (GUI.Button(new Rect(x + 20, y + 135, w - 40, 42), "CHOOSE BATTLE", buttonStyle))
+        if (GUI.Button(new Rect(x + 20, y + 152, w - 40, 44), "CHOOSE BATTLE", buttonStyle))
         {
             GameManager.Instance.SelectRoute(true);
         }
@@ -1994,16 +2302,16 @@ public class UIManager : MonoBehaviour
         GUI.backgroundColor = Color.white;
 
         GUI.color = new Color(1.0f, 0.82f, 0.2f);
-        GUI.Label(new Rect(x + 10, y + 10, w - 20, 25), "⚡ ELITE BATTLE ROUTE", subHeaderStyle);
+        GUI.Label(new Rect(x + 12, y + 10, w - 24, 26), "⚡ ELITE BATTLE ROUTE", subHeaderStyle);
         GUI.color = Color.white;
-        GUI.Label(new Rect(x + 10, y + 38, w - 20, 90),
+        GUI.Label(new Rect(x + 12, y + 38, w - 24, 108),
             "Spawns upgraded <color=#ffd133>ELITE</color> zombies:\n" +
             "• +75% HP | 1-Shots Guardians (2-Hits on Lv.3)!\n" +
             "• Freezes 3s after attacking\n" +
             "<color=#55ff55>★ CLEAR REWARD: 2X BONUS!</color>", descBodyStyle);
 
         GUI.backgroundColor = new Color(1.0f, 0.72f, 0.15f);
-        if (GUI.Button(new Rect(x + 20, y + 135, w - 40, 42), "⚡ CHOOSE ELITE (2X)", buttonStyle))
+        if (GUI.Button(new Rect(x + 20, y + 152, w - 40, 44), "⚡ CHOOSE ELITE (2X)", buttonStyle))
         {
             GameManager.Instance.SelectEliteBattleRoute();
         }
@@ -2013,11 +2321,11 @@ public class UIManager : MonoBehaviour
     void DrawEventRouteCard(float x, float y, float w, float h)
     {
         GUI.Box(new Rect(x, y, w, h), GUIContent.none, boxStyle);
-        GUI.Label(new Rect(x + 10, y + 10, w - 20, 25), "🎲 EVENT ROUTE", subHeaderStyle);
-        GUI.Label(new Rect(x + 10, y + 40, w - 20, 80), "Risk wasteland scavenging.\nChance to acquire rare\nSpecial Materials!");
+        GUI.Label(new Rect(x + 12, y + 10, w - 24, 26), "🎲 EVENT ROUTE", subHeaderStyle);
+        GUI.Label(new Rect(x + 12, y + 40, w - 24, 100), "Risk wasteland scavenging.\nChance to acquire rare\nSpecial Materials!", descBodyStyle);
 
         GUI.backgroundColor = new Color(0.3f, 0.7f, 1f);
-        if (GUI.Button(new Rect(x + 20, y + 135, w - 40, 42), "CHOOSE EVENT", buttonStyle))
+        if (GUI.Button(new Rect(x + 20, y + 152, w - 40, 44), "CHOOSE EVENT", buttonStyle))
         {
             GameManager.Instance.SelectRoute(false);
         }
@@ -2026,34 +2334,34 @@ public class UIManager : MonoBehaviour
 
     void DrawVictoryUI()
     {
-        float dialogW = 540f;
-        float dialogH = 310f;
+        float dialogW = 600f;
+        float dialogH = 330f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
         float dialogY = Screen.height / 2f - dialogH / 2f;
 
         GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), "🏆 CAMPAIGN CONQUERED — THE LAST FORTRESS SURVIVES!", boxStyle);
 
         int totalStages = GameManager.Instance != null ? GameManager.Instance.maxStages : 30;
-        GUI.Label(new Rect(dialogX + 20, dialogY + 45, dialogW - 40, 32), $"ALL {totalStages} WAVES CLEARED!", headerStyle);
-        GUI.Label(new Rect(dialogX + 20, dialogY + 85, dialogW - 40, 45), "You successfully defended the fortress across all wasteland sectors!\nYour strategic planning saved humanity.", descBodyStyle);
+        GUI.Label(new Rect(dialogX + 20, dialogY + 46, dialogW - 40, 34), $"ALL {totalStages} WAVES CLEARED!", headerStyle);
+        GUI.Label(new Rect(dialogX + 25, dialogY + 88, dialogW - 50, 56), "You successfully defended the fortress across all wasteland sectors!\nYour strategic planning saved humanity.", descBodyStyle);
 
         // Endless mode button
         GUI.backgroundColor = new Color(0.2f, 0.8f, 0.3f);
-        if (GUI.Button(new Rect(dialogX + 35, dialogY + 150, 225, 48), $"🔥 ENDLESS (Wave {totalStages + 1}+)", buttonStyle))
+        if (GUI.Button(new Rect(dialogX + 40, dialogY + 162, 245, 50), $"🔥 ENDLESS (Wave {totalStages + 1}+)", buttonStyle))
         {
             GameManager.Instance.ContinueEndlessMode();
         }
 
         // Restart campaign button
         GUI.backgroundColor = new Color(0.9f, 0.4f, 0.2f);
-        if (GUI.Button(new Rect(dialogX + 280, dialogY + 150, 225, 48), "🔄 RESTART CAMPAIGN", buttonStyle))
+        if (GUI.Button(new Rect(dialogX + 315, dialogY + 162, 245, 50), "🔄 RESTART CAMPAIGN", buttonStyle))
         {
             GameManager.Instance.RestartCampaign();
         }
 
         // Quit game button
         GUI.backgroundColor = new Color(0.55f, 0.55f, 0.55f);
-        if (GUI.Button(new Rect(dialogX + 160, dialogY + 215, 220, 42), "🚪 QUIT GAME", buttonStyle))
+        if (GUI.Button(new Rect(dialogX + 180, dialogY + 232, 240, 46), "🚪 QUIT GAME", buttonStyle))
         {
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
             QuitGame();
@@ -2063,8 +2371,8 @@ public class UIManager : MonoBehaviour
 
     void DrawQuitConfirmDialog()
     {
-        float dialogW = 380f;
-        float dialogH = 195f;
+        float dialogW = 420f;
+        float dialogH = 205f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
         float dialogY = Screen.height / 2f - dialogH / 2f;
 
@@ -2072,11 +2380,11 @@ public class UIManager : MonoBehaviour
         GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), "🚪 QUIT GAME", boxStyle);
         GUI.backgroundColor = Color.white;
 
-        GUI.Label(new Rect(dialogX + 20, dialogY + 36, dialogW - 40, 24), "What would you like to do?", headerStyle);
+        GUI.Label(new Rect(dialogX + 20, dialogY + 38, dialogW - 40, 28), "What would you like to do?", headerStyle);
 
         // 1. Return to Main Menu
         GUI.backgroundColor = new Color(1.0f, 0.72f, 0.2f);
-        if (GUI.Button(new Rect(dialogX + 35, dialogY + 72, dialogW - 70, 36), "🏠 RETURN TO MAIN MENU", buttonStyle))
+        if (GUI.Button(new Rect(dialogX + 35, dialogY + 76, dialogW - 70, 38), "🏠 RETURN TO MAIN MENU", buttonStyle))
         {
             isQuitConfirmOpen = false;
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
@@ -2085,7 +2393,7 @@ public class UIManager : MonoBehaviour
 
         // 2. Exit to Desktop
         GUI.backgroundColor = new Color(0.9f, 0.28f, 0.25f);
-        if (GUI.Button(new Rect(dialogX + 35, dialogY + 118, 145, 38), "🚪 EXIT GAME", buttonStyle))
+        if (GUI.Button(new Rect(dialogX + 35, dialogY + 124, 165, 40), "🚪 EXIT GAME", buttonStyle))
         {
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
             QuitGame();
@@ -2093,7 +2401,7 @@ public class UIManager : MonoBehaviour
 
         // 3. Cancel
         GUI.backgroundColor = new Color(0.55f, 0.55f, 0.55f);
-        if (GUI.Button(new Rect(dialogX + 195, dialogY + 118, dialogW - 230, 38), "❌ CANCEL (ESC)", buttonStyle))
+        if (GUI.Button(new Rect(dialogX + 220, dialogY + 124, 165, 40), "❌ CANCEL (ESC)", buttonStyle))
         {
             isQuitConfirmOpen = false;
             AudioHelper.PlaySound(SoundEffect.ButtonClick);
@@ -2113,9 +2421,9 @@ public class UIManager : MonoBehaviour
 
     void DrawDevToolsPanel()
     {
-        float panelW = 345f;
+        float panelW = 375f;
         bool unlocked = GameManager.Instance.isDevModeUnlocked;
-        float panelH = unlocked ? 520f : 175f;
+        float panelH = unlocked ? 595f : 190f;
         float panelX = Screen.width - panelW - 10f;
         float panelY = 118f;
 
@@ -2319,6 +2627,58 @@ public class UIManager : MonoBehaviour
             GameManager.Instance.DevRestartCurrentWave();
         }
         GUI.backgroundColor = Color.white;
+        curY += 35f;
+
+        // Row F: Persistent Dev Base Save / Load (survives game restarts + saves upgrades!)
+        GUI.Label(new Rect(curX, curY, innerW, 20f), "💾 Dev Base Save (Layout + Upgrades):", descTitleStyle);
+        curY += 22f;
+
+        int devSavedCount = (PlacementManager.Instance != null) ? PlacementManager.Instance.GetDevSavedBlueprintCount() : 0;
+        bool hasDevSave = devSavedCount > 0;
+        float clearBtnW = 34f;
+        float actionBtnW = (innerW - clearBtnW - 10f) / 2f;
+
+        GUI.backgroundColor = new Color(0.22f, 0.72f, 0.95f);
+        if (GUI.Button(new Rect(curX, curY, actionBtnW, 28f), "💾 Save Base", smallButtonStyle))
+        {
+            if (PlacementManager.Instance != null)
+            {
+                int saved = PlacementManager.Instance.SaveDevBlueprint();
+                devBaseStatusMsg = $"<color=#55ff55>✔ Saved {saved} building(s) + upgrades!</color>";
+            }
+        }
+
+        GUI.backgroundColor = hasDevSave ? new Color(0.25f, 0.88f, 0.45f) : new Color(0.45f, 0.45f, 0.45f);
+        string loadLabel = hasDevSave ? $"📥 Place ({devSavedCount})" : "📥 No Save";
+        if (GUI.Button(new Rect(curX + actionBtnW + 5f, curY, actionBtnW, 28f), loadLabel, smallButtonStyle))
+        {
+            if (PlacementManager.Instance != null && hasDevSave)
+            {
+                int placed = PlacementManager.Instance.LoadAndPlaceDevBlueprint();
+                devBaseStatusMsg = $"<color=#66e0ff>✔ Placed {placed} building(s) + upgrades!</color>";
+            }
+            else
+            {
+                devBaseStatusMsg = "<color=#ffaa55>No saved Dev base found yet.</color>";
+            }
+        }
+
+        GUI.backgroundColor = hasDevSave ? new Color(0.85f, 0.30f, 0.30f) : new Color(0.38f, 0.38f, 0.38f);
+        if (GUI.Button(new Rect(curX + (actionBtnW + 5f) * 2f, curY, clearBtnW, 28f), "🗑️", smallButtonStyle))
+        {
+            if (PlacementManager.Instance != null && hasDevSave)
+            {
+                PlacementManager.Instance.ClearDevBlueprint();
+                devBaseStatusMsg = "<color=#ff8888>Cleared saved Dev base.</color>";
+            }
+        }
+        GUI.backgroundColor = Color.white;
+        curY += 30f;
+
+        if (!string.IsNullOrEmpty(devBaseStatusMsg))
+        {
+            GUI.Label(new Rect(curX, curY, innerW, 18f), devBaseStatusMsg, singleLineLabelStyle);
+        }
     }
 
     public static string GetBuildingDisplayName(Building.BuildingType t)

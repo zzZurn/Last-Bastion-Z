@@ -72,6 +72,10 @@ public class ResourceManager : MonoBehaviour
         {
             finalGold += 200; // Wave 15 Milestone Clear Bonus (+200 Gold)
         }
+        else if (day == 30)
+        {
+            finalGold += 1000; // Wave 30 Milestone Clear Bonus (+1,000 Gold)
+        }
         return finalGold;
     }
 
@@ -94,8 +98,10 @@ public class ResourceManager : MonoBehaviour
         OnResourceChanged?.Invoke();
         bool isElite = (GameManager.Instance != null && GameManager.Instance.isEliteBattleRoute);
         string earlyTag = (day <= 4) ? " (+44% Early Day 1-4 Bonus)" : "";
-        string wave15Tag = (day == 15) ? " (+200G Wave 15 Milestone Bonus!)" : "";
-        Debug.Log($"[Resource] Stage {day} Reward{(isElite ? " [ELITE 2x BONUS]" : "")}{earlyTag}{wave15Tag}: +{goldGain} Gold, +{matGain} Materials");
+        string milestoneTag = (day == 30)
+            ? " (+1,000G Wave 30 Milestone Bonus!)"
+            : (day == 15 ? " (+200G Wave 15 Milestone Bonus!)" : "");
+        Debug.Log($"[Resource] Stage {day} Reward{(isElite ? " [ELITE 2x BONUS]" : "")}{earlyTag}{milestoneTag}: +{goldGain} Gold, +{matGain} Materials");
     }
 
     public void AddSpecialReward()

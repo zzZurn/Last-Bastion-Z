@@ -887,17 +887,18 @@ public class Zombie : MonoBehaviour
             {
                 bossLabelStyle = new GUIStyle(GUI.skin.label)
                 {
-                    fontSize = 12,
-                    fontStyle = FontStyle.Bold,
+                    font = GameFontTheme.HeaderRegularFont,
+                    fontSize = 13,
+                    fontStyle = FontStyle.Normal,
                     alignment = TextAnchor.MiddleCenter,
                     wordWrap = false,
                     clipping = TextClipping.Overflow
                 };
                 bossLabelStyle.normal.textColor = new Color(1.0f, 0.35f, 0.35f);
             }
-            float labelW = 220f;
-            float labelH = 24f;
-            GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 22f, labelW, labelH), "Tyrant Boss", bossLabelStyle);
+            float labelW = 240f;
+            float labelH = 26f;
+            GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 24f, labelW, labelH), "Tyrant Boss", bossLabelStyle);
         }
         else if (isBuffed)
         {
@@ -905,17 +906,18 @@ public class Zombie : MonoBehaviour
             {
                 buffedLabelStyle = new GUIStyle(GUI.skin.label)
                 {
-                    fontSize = 11,
-                    fontStyle = FontStyle.Bold,
+                    font = GameFontTheme.BodyBoldFont,
+                    fontSize = 14,
+                    fontStyle = FontStyle.Normal,
                     alignment = TextAnchor.MiddleCenter,
                     wordWrap = false,
                     clipping = TextClipping.Overflow
                 };
                 buffedLabelStyle.normal.textColor = new Color(1.0f, 0.65f, 0.2f);
             }
-            float labelW = 220f;
-            float labelH = 22f;
-            GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 21f, labelW, labelH), "💪 BUFFED ZOMBIE", buffedLabelStyle);
+            float labelW = 240f;
+            float labelH = 24f;
+            GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 22f, labelW, labelH), "💪 BUFFED ZOMBIE", buffedLabelStyle);
         }
         else if (isBomb)
         {
@@ -923,8 +925,9 @@ public class Zombie : MonoBehaviour
             {
                 bombazLabelStyle = new GUIStyle(GUI.skin.label)
                 {
-                    fontSize = 11,
-                    fontStyle = FontStyle.Bold,
+                    font = GameFontTheme.BodyBoldFont,
+                    fontSize = 14,
+                    fontStyle = FontStyle.Normal,
                     alignment = TextAnchor.MiddleCenter,
                     wordWrap = false,
                     clipping = TextClipping.Overflow
@@ -933,9 +936,9 @@ public class Zombie : MonoBehaviour
             bombazLabelStyle.normal.textColor = isBombazEnraged ? new Color(1.0f, 0.28f, 0.1f) : new Color(1.0f, 0.72f, 0.18f);
             string bombTitle = isBombazEnraged ? "💥 BOMBAZ (150% SPRINT!)" : "💣 BOMBAZ";
             if (isElite) bombTitle = "⚡ ELITE " + bombTitle;
-            float labelW = 240f;
-            float labelH = 22f;
-            GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 21f, labelW, labelH), bombTitle, bombazLabelStyle);
+            float labelW = 260f;
+            float labelH = 24f;
+            GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 22f, labelW, labelH), bombTitle, bombazLabelStyle);
         }
         else if (isElite)
         {
@@ -943,18 +946,19 @@ public class Zombie : MonoBehaviour
             {
                 eliteLabelStyle = new GUIStyle(GUI.skin.label)
                 {
-                    fontSize = 11,
-                    fontStyle = FontStyle.Bold,
+                    font = GameFontTheme.BodyBoldFont,
+                    fontSize = 14,
+                    fontStyle = FontStyle.Normal,
                     alignment = TextAnchor.MiddleCenter,
                     wordWrap = false,
                     clipping = TextClipping.Overflow
                 };
                 eliteLabelStyle.normal.textColor = new Color(1.0f, 0.82f, 0.2f);
             }
-            float labelW = 220f;
-            float labelH = 22f;
+            float labelW = 240f;
+            float labelH = 24f;
             string statusSuffix = (postAttackFreezeTimer > 0f) ? $" ({postAttackFreezeTimer:0.0}s)" : "";
-            GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 21f, labelW, labelH), eliteTitle + statusSuffix, eliteLabelStyle);
+            GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 22f, labelW, labelH), eliteTitle + statusSuffix, eliteLabelStyle);
         }
         else if (stunTimer > 0f)
         {
@@ -962,15 +966,16 @@ public class Zombie : MonoBehaviour
             {
                 eliteLabelStyle = new GUIStyle(GUI.skin.label)
                 {
-                    fontSize = 11,
-                    fontStyle = FontStyle.Bold,
+                    font = GameFontTheme.BodyBoldFont,
+                    fontSize = 14,
+                    fontStyle = FontStyle.Normal,
                     alignment = TextAnchor.MiddleCenter,
                     wordWrap = false,
                     clipping = TextClipping.Overflow
                 };
                 eliteLabelStyle.normal.textColor = new Color(1.0f, 0.82f, 0.2f);
             }
-            GUI.Label(new Rect(screenPos.x - 90f, y - 20f, 180f, 20f), $"💫 STUNNED ({stunTimer:0.0}s)", eliteLabelStyle);
+            GUI.Label(new Rect(screenPos.x - 100f, y - 22f, 200f, 24f), $"💫 STUNNED ({stunTimer:0.0}s)", eliteLabelStyle);
         }
 
         if (hpBarVisibleTimer > 0f)

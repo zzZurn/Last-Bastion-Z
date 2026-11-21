@@ -72,6 +72,12 @@ public class WaveManager : MonoBehaviour
             totalZombiesInWave = Mathf.RoundToInt(totalZombiesInWave * 1.20f);
         }
 
+        // Stages after Stage 30 (Stage 31+): Apocalypse City buff increases zombie spawns by +35%!
+        if (day > 30)
+        {
+            totalZombiesInWave = Mathf.RoundToInt(totalZombiesInWave * 1.35f);
+        }
+
         zombiesSpawned = 0;
         zombiesRemaining = totalZombiesInWave;
         activeZombies.Clear();
@@ -113,7 +119,9 @@ public class WaveManager : MonoBehaviour
     private IEnumerator SpawnWaveRoutine(int day)
     {
         isSpawning = true;
-        Debug.Log($"[WaveManager] Stage/Wave {day} started! Total zombies: {totalZombiesInWave}");
+        // Stages after Stage 30 (Stage 31+): Zombies spawn 20% faster (interval scaled by 1 / 1.20)
+        float spawnIntervalScale = (day > 30) ? (1f / 1.20f) : 1.0f;
+        Debug.Log($"[WaveManager] Stage/Wave {day} started! Total zombies: {totalZombiesInWave}{(day > 30 ? " (+35% Horde, +20% Spawn Speed)" : "")}");
 
         while (zombiesSpawned < totalZombiesInWave)
         {
@@ -124,14 +132,14 @@ public class WaveManager : MonoBehaviour
             float clusterChance = (day >= 20) ? 0.48f : (day >= 10 ? 0.40f : 0.35f);
             if (day >= 4 && Random.value < clusterChance && zombiesSpawned < totalZombiesInWave)
             {
-                yield return new WaitForSeconds(0.18f);
+                yield return new WaitForSeconds(0.18f * spawnIntervalScale);
                 SpawnZombie(day);
                 zombiesSpawned++;
 
                 // End-game multi-cluster rush for stages 22+
                 if (day >= 22 && Random.value < 0.30f && zombiesSpawned < totalZombiesInWave)
                 {
-                    yield return new WaitForSeconds(0.15f);
+                    yield return new WaitForSeconds(0.15f * spawnIntervalScale);
                     SpawnZombie(day);
                     zombiesSpawned++;
                 }
@@ -141,7 +149,7 @@ public class WaveManager : MonoBehaviour
             float progress = (float)zombiesSpawned / Mathf.Max(1, totalZombiesInWave);
             float startDelay = Mathf.Max(0.85f, 2.4f - (day * 0.10f));
             float endDelay = Mathf.Max(0.22f, 0.75f - (day * 0.04f));
-            float delay = Mathf.Lerp(startDelay, endDelay, progress);
+            float delay = Mathf.Lerp(startDelay, endDelay, progress) * spawnIntervalScale;
 
             yield return new WaitForSeconds(delay);
         }

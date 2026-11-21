@@ -53,6 +53,37 @@ public class PlacementManager : MonoBehaviour
 
     private readonly List<WaveSnapshotSlot> waveStartLayout = new List<WaveSnapshotSlot>();
 
+    private const string DEV_BLUEPRINT_PREF_KEY = "LastBastion_DevBaseBlueprint_v1";
+
+    [System.Serializable]
+    private class DevSavedBuildingEntry
+    {
+        public int gridX;
+        public int gridY;
+        public string typeName;
+    }
+
+    [System.Serializable]
+    private class DevSavedUpgradeEntry
+    {
+        public string typeName;
+        public int level;
+    }
+
+    [System.Serializable]
+    private class DevBaseBlueprintData
+    {
+        public int version = 1;
+        public List<DevSavedBuildingEntry> buildings = new List<DevSavedBuildingEntry>();
+        public List<DevSavedUpgradeEntry> upgrades = new List<DevSavedUpgradeEntry>();
+        public bool fighterOwned = false;
+        public int fighterUpgradeLevel = 0;
+        public bool b2Owned = false;
+    }
+
+    private DevBaseBlueprintData _devBlueprintCache = null;
+    private bool _devBlueprintLoaded = false;
+
     // Stored/Recovered buildings from previous days
     private Dictionary<Building.BuildingType, int> storedBuildingCounts = new Dictionary<Building.BuildingType, int>()
     {
@@ -241,6 +272,170 @@ public class PlacementManager : MonoBehaviour
         AudioHelper.PlaySound(SoundEffect.BuildingPlace, 0.8f);
         Debug.Log($"[PlacementManager] Successfully restored {placedCount}/{lastSavedLayout.Count} buildings from previous layout!");
         return placedCount;
+    }
+
+    private void EnsureDevBlueprintLoaded()
+    {
+        if (_devBlueprintLoaded) return;
+        _devBlueprintLoaded = true;
+
+        string json = PlayerPrefs.GetString(DEV_BLUEPRINT_PREF_KEY, "");
+        if (string.IsNullOrEmpty(json))
+        {
+            _devBlueprintCache = null;
+            return;
+        }
+
+        try
+        {
+            _devBlueprintCache = JsonUtility.FromJson<DevBaseBlueprintData>(json);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[DevBlueprint] Failed to parse saved blueprint: {ex.Message}");
+            _devBlueprintCache = null;
+        }
+    }
+
+    public bool HasDevSavedBlueprint()
+    {
+        EnsureDevBlueprintLoaded();
+        return _devBlueprintCache != null && _devBlueprintCache.buildings != null && _devBlueprintCache.buildings.Count > 0;
+    }
+
+    public int GetDevSavedBlueprintCount()
+    {
+        EnsureDevBlueprintLoaded();
+        return (_devBlueprintCache != null && _devBlueprintCache.buildings != null) ? _devBlueprintCache.buildings.Count : 0;
+    }
+
+    public int SaveDevBlueprint()
+    {
+        var data = new DevBaseBlueprintData();
+
+        if (GridManager.Instance != null)
+        {
+            foreach (var b in GridManager.Instance.GetAllBuildings())
+            {
+                if (b == null) continue;
+                data.buildings.Add(new DevSavedBuildingEntry
+                {
+                    gridX = b.gridX,
+                    gridY = b.gridY,
+                    typeName = b.type.ToString()
+                });
+            }
+        }
+
+        var allTypes = (Building.BuildingType[])System.Enum.GetValues(typeof(Building.BuildingType));
+        foreach (var bType in allTypes)
+        {
+            int lv = Building.GetUpgradeLevel(bType);
+            if (lv > 0)
+            {
+                data.upgrades.Add(new DevSavedUpgradeEntry
+                {
+                    typeName = bType.ToString(),
+                    level = lv
+                });
+            }
+        }
+
+        if (AirSupportManager.Instance != null)
+        {
+            data.fighterOwned = AirSupportManager.Instance.IsFighterOwned;
+            data.fighterUpgradeLevel = AirSupportManager.Instance.FighterUpgradeLevel;
+            data.b2Owned = AirSupportManager.Instance.IsB2Owned;
+        }
+
+        string json = JsonUtility.ToJson(data);
+        PlayerPrefs.SetString(DEV_BLUEPRINT_PREF_KEY, json);
+        PlayerPrefs.Save();
+
+        _devBlueprintCache = data;
+        _devBlueprintLoaded = true;
+
+        AudioHelper.PlaySound(SoundEffect.ResourceGain, 0.85f);
+        Debug.Log($"[DevBlueprint] Saved {data.buildings.Count} building(s) + {data.upgrades.Count} upgrade(s) permanently to PlayerPrefs.");
+        return data.buildings.Count;
+    }
+
+    public int LoadAndPlaceDevBlueprint()
+    {
+        EnsureDevBlueprintLoaded();
+        if (_devBlueprintCache == null || _devBlueprintCache.buildings == null || _devBlueprintCache.buildings.Count == 0)
+        {
+            Debug.LogWarning("[DevBlueprint] No saved Dev Base found!");
+            return 0;
+        }
+
+        // Clear current battlefield layout so the saved Dev Base restores cleanly without cell collisions
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.ClearBattlefield(false);
+        }
+
+        // Restore all saved building upgrades first so spawned buildings/soldiers inherit them immediately
+        Building.ResetAllUpgrades();
+        if (_devBlueprintCache.upgrades != null)
+        {
+            foreach (var upg in _devBlueprintCache.upgrades)
+            {
+                if (upg != null && System.Enum.TryParse(upg.typeName, out Building.BuildingType bType))
+                {
+                    Building.SetUpgradeLevel(bType, upg.level);
+                }
+            }
+        }
+
+        if (AirSupportManager.Instance != null)
+        {
+            AirSupportManager.Instance.RestoreDevState(
+                _devBlueprintCache.fighterOwned,
+                _devBlueprintCache.fighterUpgradeLevel,
+                _devBlueprintCache.b2Owned
+            );
+        }
+
+        int placedCount = 0;
+        if (GridManager.Instance != null)
+        {
+            bool prevUncond = (GameManager.Instance != null) && GameManager.Instance.isDevUnconditionalMode;
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.isDevUnconditionalMode = true;
+            }
+
+            foreach (var slot in _devBlueprintCache.buildings)
+            {
+                if (slot == null) continue;
+                if (System.Enum.TryParse(slot.typeName, out Building.BuildingType bType) &&
+                    GridManager.Instance.CanPlaceBuildingAt(slot.gridX, slot.gridY, bType))
+                {
+                    SpawnBuildingInstance(bType, slot.gridX, slot.gridY, 0, 0, 0);
+                    placedCount++;
+                }
+            }
+
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.isDevUnconditionalMode = prevUncond;
+            }
+        }
+
+        AudioHelper.PlaySound(SoundEffect.BuildingPlace, 0.85f);
+        Debug.Log($"[DevBlueprint] Loaded and placed {placedCount}/{_devBlueprintCache.buildings.Count} buildings with saved upgrades!");
+        return placedCount;
+    }
+
+    public void ClearDevBlueprint()
+    {
+        PlayerPrefs.DeleteKey(DEV_BLUEPRINT_PREF_KEY);
+        PlayerPrefs.Save();
+        _devBlueprintCache = null;
+        _devBlueprintLoaded = true;
+        AudioHelper.PlaySound(SoundEffect.ButtonClick);
+        Debug.Log("[DevBlueprint] Cleared saved Dev Base blueprint.");
     }
 
     private static Shader _cachedSafeShader;

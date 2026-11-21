@@ -25,7 +25,7 @@ public static class ApplyPostApocalypseSceneTheme
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.13f, 0.11f, 0.09f, 1.0f);
             cam.transform.rotation = Quaternion.Euler(50f, 0f, 0f);
-            cam.transform.position = new Vector3(-15f, 30f, -25.1f);
+            cam.transform.position = new Vector3(-15f, 120f, -100.69f);
             cam.orthographic = true;
             cam.orthographicSize = 28f;
             EditorUtility.SetDirty(cam);
@@ -35,9 +35,11 @@ public static class ApplyPostApocalypseSceneTheme
             if (camCtrl != null)
             {
                 camCtrl.panLimitX = new Vector2(-70f, 50f);
-                camCtrl.panLimitZ = new Vector2(-68f, 48f);
+                camCtrl.groundPanLimitZ = new Vector2(-48f, 48f);
+                camCtrl.panLimitZ = new Vector2(-148.7f, -52.7f);
                 camCtrl.maxZoom = 80f;
-                camCtrl.cameraHeight = 30f;
+                camCtrl.cameraHeight = 120f;
+                camCtrl.topDownHeight = 120f;
                 EditorUtility.SetDirty(camCtrl);
             }
         }
@@ -115,10 +117,10 @@ public static class ApplyPostApocalypseSceneTheme
             changed = true;
         }
 
-        // 5. Atmospheric Fog
+        // 5. Atmospheric Fog (compensated for 120m orthographic camera height)
         RenderSettings.fog = true;
         RenderSettings.fogColor = new Color(0.16f, 0.13f, 0.10f);
-        RenderSettings.fogDensity = 0.008f;
+        RenderSettings.fogDensity = 0.0020f;
 
         if (changed)
         {

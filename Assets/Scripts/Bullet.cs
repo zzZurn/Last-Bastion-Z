@@ -33,6 +33,14 @@ public class Bullet : MonoBehaviour
 
     private float lifeTime = 3.0f;
 
+    /// <summary>
+    /// Converts a square AOE half-extent into a circular radius with identical surface area (pi * r^2 = 4 * halfExtent^2).
+    /// </summary>
+    public static float SquareHalfExtentToEqualAreaRadius(float halfExtent)
+    {
+        return halfExtent * (2f / Mathf.Sqrt(Mathf.PI));
+    }
+
     public void Initialize(Transform targetTransform, float dmg, float spd, bool sniper, bool heal = false, float aoeExtent = 0f)
     {
         target = targetTransform;
@@ -40,8 +48,8 @@ public class Bullet : MonoBehaviour
         speed = spd;
         isSniper = sniper;
         isHeal = heal;
-        aoeHalfExtent = aoeExtent;
-        isCircularAOE = false;
+        isCircularAOE = aoeExtent > 0f;
+        aoeHalfExtent = isCircularAOE ? SquareHalfExtentToEqualAreaRadius(aoeExtent) : 0f;
         isBallisticICBM = false;
         isGrenade = false;
         isTankShell = false;
@@ -96,8 +104,9 @@ public class Bullet : MonoBehaviour
     {
         target = null;
         damage = dmg;
-        aoeHalfExtent = halfExtent; // 3.0m half-extent = 6.0m x 6.0m (3x3 blocks square AOE)
-        isCircularAOE = false;
+        // Convert square half-extent into equal-area circular blast radius (~3.385m for 3x3 cells = 36 m^2)
+        aoeHalfExtent = SquareHalfExtentToEqualAreaRadius(halfExtent);
+        isCircularAOE = true;
         isBallisticICBM = true;
         isGrenade = true;
         ballisticStartPos = startPos;
@@ -250,8 +259,9 @@ public class Bullet : MonoBehaviour
                 }
             }
 
-            SpawnAoeExplosionVisual(impactPos, aoeHalfExtent * 2f, isCircularAOE);
-            if (isBallisticICBM || isCircularAOE)
+            bool isNuclearICBM = isBallisticICBM && !isGrenade;
+            SpawnAoeExplosionVisual(impactPos, aoeHalfExtent * 2f, isCircularAOE, isNuclearICBM);
+            if (isNuclearICBM)
             {
                 AudioHelper.PlaySound(SoundEffect.ICBMExplosion, 1.0f);
                 AudioHelper.PlaySound(SoundEffect.ExplosionSubBass, 1.0f);
@@ -399,14 +409,14 @@ public class Bullet : MonoBehaviour
         Destroy(spark, 0.12f);
     }
 
-    private void SpawnAoeExplosionVisual(Vector3 center, float size, bool circular = false)
+    private void SpawnAoeExplosionVisual(Vector3 center, float size, bool circular = true, bool isNuclearICBM = false)
     {
         // Dynamic 3D Point Light + Additive Ground/Overhead Light Glow Halo
-        CrossMapVisualizer.SpawnExplosionLightAndGlow(center, size, circular, isTankShell);
+        CrossMapVisualizer.SpawnExplosionLightAndGlow(center, size, isNuclearICBM, isTankShell);
 
-        // Ground AOE blast zone indicator (Cylinder for 8x8 circle ICBM, Cube for 3x3 tank) + bright unlit fireball
+        // Circular ground AOE blast zone indicator (Cylinder) + bright unlit fireball
         GameObject blastZone = GameObject.CreatePrimitive(circular ? PrimitiveType.Cylinder : PrimitiveType.Cube);
-        blastZone.name = circular ? "ICBM_BlastCircle_8x8" : "TankAOE_BlastZone_3x3";
+        blastZone.name = isNuclearICBM ? "ICBM_BlastCircle_8x8" : (isGrenade ? "SMG_GrenadeBlastCircle" : "TankAOE_BlastCircle");
         blastZone.transform.position = new Vector3(center.x, 0.12f, center.z);
         blastZone.transform.localScale = circular
             ? new Vector3(size, 0.08f, size)
@@ -416,32 +426,32 @@ public class Bullet : MonoBehaviour
         Renderer r1 = blastZone.GetComponent<Renderer>();
         if (r1 != null)
         {
-            Color zoneCol = circular
+            Color zoneCol = isNuclearICBM
                 ? new Color(1.0f, 0.45f, 0.12f, 0.78f)
                 : new Color(1.0f, 0.55f, 0.15f, 0.72f);
             r1.sharedMaterial = CrossMapVisualizer.CreateEmissiveExplosionMaterial(zoneCol, false, null, 3155);
             r1.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             r1.receiveShadows = false;
         }
-        Destroy(blastZone, circular ? 0.55f : 0.32f);
+        Destroy(blastZone, isNuclearICBM ? 0.55f : 0.34f);
 
         GameObject fireball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        fireball.name = circular ? "ICBM_Fireball" : "TankAOE_Fireball";
+        fireball.name = isNuclearICBM ? "ICBM_Fireball" : "TankAOE_Fireball";
         fireball.transform.position = new Vector3(center.x, 0.9f, center.z);
-        float fbScale = circular ? size * 0.48f : size * 0.62f;
+        float fbScale = isNuclearICBM ? size * 0.48f : size * 0.56f;
         fireball.transform.localScale = new Vector3(fbScale, fbScale, fbScale);
         Collider c2 = fireball.GetComponent<Collider>();
         if (c2 != null) Destroy(c2);
         Renderer r2 = fireball.GetComponent<Renderer>();
         if (r2 != null)
         {
-            Color fbCol = circular
+            Color fbCol = isNuclearICBM
                 ? new Color(1.0f, 0.92f, 0.55f, 0.95f)
                 : new Color(1.0f, 0.85f, 0.35f, 0.92f);
             r2.sharedMaterial = CrossMapVisualizer.CreateEmissiveExplosionMaterial(fbCol, true, null, 3160);
             r2.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             r2.receiveShadows = false;
         }
-        Destroy(fireball, circular ? 0.42f : 0.26f);
+        Destroy(fireball, isNuclearICBM ? 0.42f : 0.26f);
     }
 }

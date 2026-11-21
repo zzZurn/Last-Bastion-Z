@@ -6,7 +6,8 @@ public class CameraController : MonoBehaviour
     public float panSpeed = 28f;
     public float panBorderThickness = 10f;
     public Vector2 panLimitX = new Vector2(-70f, 50f);
-    public Vector2 panLimitZ = new Vector2(-68f, 48f);
+    public Vector2 panLimitZ = new Vector2(-148.7f, -52.7f);
+    public Vector2 groundPanLimitZ = new Vector2(-48f, 48f);
 
     [Header("Zoom Settings")]
     public float zoomSpeed = 6f;
@@ -15,7 +16,8 @@ public class CameraController : MonoBehaviour
 
     [Header("PvZ Camera Angle Settings")]
     public float pitchAngle = 50f; // Plants vs. Zombies tilted pitch angle
-    public float cameraHeight = 30f; // Height above ground
+    public float cameraHeight = 120f; // High above tallest city skyscrapers so near clip plane never slices rooftops
+    public float topDownHeight = 120f;
     public bool isPvZAngle = true;
 
     private Camera cam;
@@ -31,13 +33,20 @@ public class CameraController : MonoBehaviour
     {
         cam = GetComponent<Camera>();
         panLimitX = new Vector2(-70f, 50f);
+        groundPanLimitZ = new Vector2(-48f, 48f);
         maxZoom = 80f;
-        cameraHeight = 30f;
-        if (cam != null && cam.orthographic && cam.orthographicSize < 26f)
+        cameraHeight = 120f;
+        topDownHeight = 120f;
+        if (cam != null)
         {
-            cam.orthographicSize = 28f;
+            cam.nearClipPlane = 0.3f;
+            cam.farClipPlane = Mathf.Max(cam.farClipPlane, 1000f);
+            if (cam.orthographic && cam.orthographicSize < 26f)
+            {
+                cam.orthographicSize = 28f;
+            }
         }
-        SetCameraView(isPvZAngle);
+        SetCameraView(isPvZAngle, preserveGroundFocus: false);
     }
 
     void Update()
@@ -70,40 +79,64 @@ public class CameraController : MonoBehaviour
         ClampPosition();
     }
 
+    private float GetActiveHeight(float pitch)
+    {
+        return (pitch >= 89.9f) ? topDownHeight : cameraHeight;
+    }
+
+    private static float GetCameraZOffset(float pitch, float height)
+    {
+        if (pitch >= 89.9f) return 0f;
+        return -height / Mathf.Tan(pitch * Mathf.Deg2Rad);
+    }
+
     public void ToggleCameraView()
     {
         isPvZAngle = !isPvZAngle;
         SetCameraView(isPvZAngle);
     }
 
-    public void SetCameraView(bool pvzMode)
+    public void SetCameraView(bool pvzMode, bool preserveGroundFocus = true)
     {
+        float oldHeight = GetActiveHeight(pitchAngle);
+        float oldZOffset = GetCameraZOffset(pitchAngle, oldHeight);
+        float currentGroundZ = preserveGroundFocus ? (transform.position.z - oldZOffset) : 0f;
+
         isPvZAngle = pvzMode;
+        pitchAngle = isPvZAngle ? 50f : 90f;
+
+        float activeHeight = GetActiveHeight(pitchAngle);
+        float zOffset = GetCameraZOffset(pitchAngle, activeHeight);
+        panLimitZ = new Vector2(groundPanLimitZ.x + zOffset, groundPanLimitZ.y + zOffset);
+
+        transform.rotation = Quaternion.Euler(pitchAngle, 0f, 0f);
+        float clampedGroundZ = Mathf.Clamp(currentGroundZ, groundPanLimitZ.x, groundPanLimitZ.y);
+        transform.position = new Vector3(transform.position.x, activeHeight, clampedGroundZ + zOffset);
+
         if (isPvZAngle)
         {
-            pitchAngle = 50f;
-            panLimitZ = new Vector2(-68f, 48f);
-            transform.rotation = Quaternion.Euler(pitchAngle, 0f, 0f);
-            float zOffset = -cameraHeight / Mathf.Tan(pitchAngle * Mathf.Deg2Rad);
-            transform.position = new Vector3(transform.position.x, cameraHeight, zOffset);
             Debug.Log("[Camera] Applied Plants vs. Zombies 2.5D tilted perspective (50°)");
         }
         else
         {
-            pitchAngle = 90f;
-            panLimitZ = new Vector2(-48f, 48f);
-            transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-            transform.position = new Vector3(transform.position.x, 38f, 0f);
             Debug.Log("[Camera] Switched to Classic Top-Down view (90°)");
         }
     }
 
     public void AdjustPitch(float delta)
     {
+        float oldHeight = GetActiveHeight(pitchAngle);
+        float oldZOffset = GetCameraZOffset(pitchAngle, oldHeight);
+        float currentGroundZ = transform.position.z - oldZOffset;
+
         pitchAngle = Mathf.Clamp(pitchAngle + delta, 30f, 90f);
+        float activeHeight = GetActiveHeight(pitchAngle);
+        float zOffset = GetCameraZOffset(pitchAngle, activeHeight);
+        panLimitZ = new Vector2(groundPanLimitZ.x + zOffset, groundPanLimitZ.y + zOffset);
+
         transform.rotation = Quaternion.Euler(pitchAngle, 0f, 0f);
-        float zOffset = -cameraHeight / Mathf.Tan(pitchAngle * Mathf.Deg2Rad);
-        transform.position = new Vector3(transform.position.x, cameraHeight, zOffset);
+        float clampedGroundZ = Mathf.Clamp(currentGroundZ, groundPanLimitZ.x, groundPanLimitZ.y);
+        transform.position = new Vector3(transform.position.x, activeHeight, clampedGroundZ + zOffset);
     }
 
     void HandleKeyboardPan()

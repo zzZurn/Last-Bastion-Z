@@ -24,7 +24,7 @@ public class CrossMapVisualizer : MonoBehaviour
     private bool gatesUnlocked = false;
     private bool _envVerified = false;
     private bool _isApocalypseThemeActive = false;
-    private const string ENV_VERSION_TAG = "EnvVersion_10_FixWhiteBuildings";
+    private const string ENV_VERSION_TAG = "EnvVersion_11_FixCityCamClipping";
     private readonly System.Collections.Generic.List<UnityEngine.Object> _generatedAssets = new System.Collections.Generic.List<UnityEngine.Object>();
 
     public static bool IsApocalypseCityTheme()
@@ -1541,9 +1541,9 @@ public class CrossMapVisualizer : MonoBehaviour
             }
         }
 
-        CreateSkyWall("ApocalypseSky_NorthHorizon", new Vector3(-15f, 26f, 92f), new Vector3(0f, 0f, 0f), new Vector3(260f, 56f, 1f));
-        CreateSkyWall("ApocalypseSky_EastHorizon",  new Vector3(95f, 26f, 0f),   new Vector3(0f, 90f, 0f), new Vector3(220f, 56f, 1f));
-        CreateSkyWall("ApocalypseSky_WestHorizon",  new Vector3(-120f, 26f, 0f), new Vector3(0f, -90f, 0f), new Vector3(220f, 56f, 1f));
+        CreateSkyWall("ApocalypseSky_NorthHorizon", new Vector3(-15f, 48f, 108f), new Vector3(0f, 0f, 0f), new Vector3(320f, 104f, 1f));
+        CreateSkyWall("ApocalypseSky_EastHorizon",  new Vector3(112f, 48f, 0f),   new Vector3(0f, 90f, 0f), new Vector3(260f, 104f, 1f));
+        CreateSkyWall("ApocalypseSky_WestHorizon",  new Vector3(-128f, 48f, 0f), new Vector3(0f, -90f, 0f), new Vector3(260f, 104f, 1f));
     }
 
     private void BuildFlatLockOverlays()
@@ -2033,7 +2033,7 @@ public class CrossMapVisualizer : MonoBehaviour
             RenderSettings.ambientLight = new Color(0.45f, 0.28f, 0.18f);
             RenderSettings.fog = true;
             RenderSettings.fogColor = new Color(0.42f, 0.19f, 0.09f);
-            RenderSettings.fogDensity = 0.0036f;
+            RenderSettings.fogDensity = 0.0009f; // Compensated for cameraHeight=120m orthographic distance
 
             var cam = Camera.main;
             if (cam != null)
@@ -2116,7 +2116,7 @@ public class CrossMapVisualizer : MonoBehaviour
 
         RenderSettings.fog = true;
         RenderSettings.fogColor = new Color(0.07f, 0.09f, 0.11f);
-        RenderSettings.fogDensity = 0.0045f;
+        RenderSettings.fogDensity = 0.0011f; // Compensated for cameraHeight=120m orthographic distance
 
         // 7. Camera night sky background
         var mainCam = Camera.main;

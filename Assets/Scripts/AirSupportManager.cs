@@ -330,10 +330,7 @@ public class AirSupportManager : MonoBehaviour
 
         // Cancel B-2, ICBM, or placement targeting so only one reticle is active
         CancelB2Targeting();
-        if (Soldier.ActiveTargetingICBM != null)
-        {
-            Soldier.ActiveTargetingICBM = null;
-        }
+        Soldier.CancelICBMTargeting();
         if (PlacementManager.Instance != null && PlacementManager.Instance.currentMode != PlacementManager.PlacementMode.None)
         {
             PlacementManager.Instance.CancelPlacement();
@@ -363,10 +360,7 @@ public class AirSupportManager : MonoBehaviour
 
         // Cancel Fighter, ICBM, or placement targeting so only one reticle is active
         CancelTargeting();
-        if (Soldier.ActiveTargetingICBM != null)
-        {
-            Soldier.ActiveTargetingICBM = null;
-        }
+        Soldier.CancelICBMTargeting();
         if (PlacementManager.Instance != null && PlacementManager.Instance.currentMode != PlacementManager.PlacementMode.None)
         {
             PlacementManager.Instance.CancelPlacement();
@@ -451,6 +445,15 @@ public class AirSupportManager : MonoBehaviour
         IsFighterOwned = false;
         FighterUpgradeLevel = 0;
         IsB2Owned = false;
+        RefreshZoneVisualScales();
+    }
+
+    public void RestoreDevState(bool fighterOwned, int fighterUpgradeLevel, bool b2Owned)
+    {
+        ResetForNewStage();
+        IsFighterOwned = fighterOwned;
+        FighterUpgradeLevel = fighterOwned ? Mathf.Clamp(fighterUpgradeLevel, 0, FIGHTER_MAX_UPGRADE_LEVEL) : 0;
+        IsB2Owned = b2Owned;
         RefreshZoneVisualScales();
     }
 
@@ -1510,10 +1513,16 @@ public class AirSupportManager : MonoBehaviour
         if (audioObj != null) Destroy(audioObj);
     }
 
+    // Circular bomb radius giving exact equal area to B-2 bomb footprint (8m x 10m = 80 m^2): r = sqrt(80 / pi) ~= 5.046m
+    private static float GetB2EqualAreaCircleRadius()
+    {
+        float rectArea = (B2_BOMB_HALF_EXTENT_X * 2f) * (B2_BOMB_HALF_EXTENT_Z * 2f);
+        return Mathf.Sqrt(rectArea / Mathf.PI);
+    }
+
     private void DetonateB2Bomb(Vector3 impactPos, HashSet<Zombie> damagedThisPass)
     {
-        float halfExtentX = B2_BOMB_HALF_EXTENT_X + 0.15f; // 4 blocks along X (8m)
-        float halfExtentZ = B2_BOMB_HALF_EXTENT_Z + 0.15f; // 5 blocks wide along Z (10m)
+        float hitRadius = GetB2EqualAreaCircleRadius() + 0.15f;
         IEnumerable<Zombie> candidates = (WaveManager.Instance != null && WaveManager.Instance.ActiveZombies != null)
             ? (IEnumerable<Zombie>)WaveManager.Instance.ActiveZombies
             : FindObjectsByType<Zombie>();
@@ -1522,9 +1531,11 @@ public class AirSupportManager : MonoBehaviour
         foreach (Zombie z in candidates)
         {
             if (z == null || z.isDead || damagedThisPass.Contains(z)) continue;
-            float dx = Mathf.Abs(z.transform.position.x - impactPos.x);
-            float dz = Mathf.Abs(z.transform.position.z - impactPos.z);
-            if (dx <= halfExtentX && dz <= halfExtentZ)
+            float dist2D = Vector2.Distance(
+                new Vector2(z.transform.position.x, z.transform.position.z),
+                new Vector2(impactPos.x, impactPos.z)
+            );
+            if (dist2D <= hitRadius)
             {
                 hitList.Add(z);
                 damagedThisPass.Add(z);
@@ -1546,15 +1557,14 @@ public class AirSupportManager : MonoBehaviour
 
     private static void SpawnB2ExplosionFx(Vector3 center)
     {
-        float blastSizeX = B2_BOMB_HALF_EXTENT_X * 2f; // 8.0m along X
-        float blastSizeZ = B2_BOMB_HALF_EXTENT_Z * 2f; // 10.0m along Z (5 blocks wide)
-        CrossMapVisualizer.SpawnExplosionLightAndGlow(center, Mathf.Max(blastSizeX, blastSizeZ) * 1.15f, false, false);
+        float blastDiameter = GetB2EqualAreaCircleRadius() * 2f; // Equal-area circle (~10.09m diameter, 80 m^2 area)
+        CrossMapVisualizer.SpawnExplosionLightAndGlow(center, blastDiameter * 1.15f, false, false);
         CrossMapVisualizer.RegisterExplosionFlash(center, 18f, 0.50f, 1.05f);
 
-        GameObject blastZone = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        blastZone.name = "B2_BombBlastZone_5x4";
+        GameObject blastZone = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        blastZone.name = "B2_BombBlastCircle";
         blastZone.transform.position = new Vector3(center.x, 0.12f, center.z);
-        blastZone.transform.localScale = new Vector3(blastSizeX, 0.10f, blastSizeZ);
+        blastZone.transform.localScale = new Vector3(blastDiameter, 0.08f, blastDiameter);
         Collider c1 = blastZone.GetComponent<Collider>();
         if (c1 != null) Destroy(c1);
         Renderer r1 = blastZone.GetComponent<Renderer>();
@@ -1570,7 +1580,7 @@ public class AirSupportManager : MonoBehaviour
         GameObject fireball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         fireball.name = "B2_BombFireball";
         fireball.transform.position = new Vector3(center.x, 0.85f, center.z);
-        float fbScale = ((blastSizeX + blastSizeZ) * 0.5f) * 0.56f;
+        float fbScale = blastDiameter * 0.50f;
         fireball.transform.localScale = new Vector3(fbScale, fbScale, fbScale);
         Collider c2 = fireball.GetComponent<Collider>();
         if (c2 != null) Destroy(c2);
@@ -1768,9 +1778,12 @@ public class AirSupportManager : MonoBehaviour
         {
             _etaBadgeStyle = new GUIStyle(GUI.skin.box)
             {
-                fontSize = 13,
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleCenter
+                font = GameFontTheme.BodyBoldFont,
+                fontSize = 15,
+                fontStyle = FontStyle.Normal,
+                alignment = TextAnchor.MiddleCenter,
+                wordWrap = false,
+                clipping = TextClipping.Overflow
             };
             _etaBadgeStyle.normal.textColor = Color.white;
         }
@@ -1780,10 +1793,10 @@ public class AirSupportManager : MonoBehaviour
             Vector3 scr = cam.WorldToScreenPoint(ActiveB2StrikeCenter + Vector3.up * 1.6f);
             if (scr.z > 0f)
             {
-                float gx = scr.x - 95f;
-                float gy = Screen.height - scr.y - 26f;
+                float gx = scr.x - 115f;
+                float gy = Screen.height - scr.y - 28f;
                 GUI.backgroundColor = new Color(0.95f, 0.38f, 0.08f, 0.92f);
-                GUI.Box(new Rect(gx, gy, 190f, 26f), $"💣 B-2 INBOUND: {B2ArrivalETA:0.0}s", _etaBadgeStyle);
+                GUI.Box(new Rect(gx, gy, 230f, 28f), $"💣 B-2 INBOUND: {B2ArrivalETA:0.0}s", _etaBadgeStyle);
                 GUI.backgroundColor = Color.white;
             }
         }
@@ -1793,10 +1806,10 @@ public class AirSupportManager : MonoBehaviour
             Vector3 scr = cam.WorldToScreenPoint(ActiveFighterStrikeCenter + Vector3.up * 1.4f);
             if (scr.z > 0f)
             {
-                float gx = scr.x - 90f;
-                float gy = Screen.height - scr.y - 26f;
+                float gx = scr.x - 108f;
+                float gy = Screen.height - scr.y - 28f;
                 GUI.backgroundColor = new Color(0.14f, 0.68f, 0.95f, 0.92f);
-                GUI.Box(new Rect(gx, gy, 180f, 26f), $"✈️ CAS INBOUND: {FighterArrivalETA:0.0}s", _etaBadgeStyle);
+                GUI.Box(new Rect(gx, gy, 216f, 28f), $"✈️ CAS INBOUND: {FighterArrivalETA:0.0}s", _etaBadgeStyle);
                 GUI.backgroundColor = Color.white;
             }
         }

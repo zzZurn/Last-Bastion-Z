@@ -185,7 +185,7 @@ public class GameManager : MonoBehaviour
         RenderSettings.fogColor = isCity
             ? new Color(0.42f, 0.19f, 0.09f)
             : new Color(0.07f, 0.09f, 0.11f);
-        RenderSettings.fogDensity = isCity ? 0.0038f : 0.0045f;
+        RenderSettings.fogDensity = isCity ? 0.00095f : 0.0011f;
 
         Debug.Log($"[GameManager] Visual theme applied (ApocalypseCity={isCity}, Stage={CurrentDay}).");
     }
@@ -202,6 +202,10 @@ public class GameManager : MonoBehaviour
     public void SetState(GameState newState)
     {
         CurrentState = newState;
+        if (newState == GameState.MainMenu || newState == GameState.GameOver)
+        {
+            UIManager.Instance?.CancelDayTransition();
+        }
         OnStateChanged?.Invoke(newState);
         Debug.Log($"[GameManager] State -> {newState}");
     }
@@ -238,6 +242,7 @@ public class GameManager : MonoBehaviour
         CurrentDay++;
         isEliteBattleRoute = false;
         ApplyPostApocalypseTheme();
+        UIManager.Instance?.TriggerDayTransition(CurrentDay);
 
         // Wave 30 (Chapter 1 Gatekeeper) & Wave 40 (Final Campaign Climax): Mandatory Elite Battle Route
         if (CurrentDay == 30 || CurrentDay == maxStages)

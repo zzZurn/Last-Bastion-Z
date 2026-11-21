@@ -44,6 +44,7 @@ public class Soldier : MonoBehaviour
     private bool isFiringBurst = false;
 
     private float fireTimer;
+    public float ICBMCooldownRemaining => Mathf.Max(0f, fireTimer);
     private Transform target;
     public bool isDead { get; private set; } = false;
 
@@ -240,9 +241,7 @@ public class Soldier : MonoBehaviour
             // Right-Click -> Cancel targeting
             if (Input.GetMouseButtonDown(1))
             {
-                ActiveTargetingICBM = null;
-                transform.rotation = Quaternion.LookRotation(Vector3.right);
-                if (icbmReticleObj != null) icbmReticleObj.SetActive(false);
+                CancelICBMTargeting();
                 AudioHelper.PlaySound(SoundEffect.ButtonClick, 0.6f);
                 return;
             }
@@ -254,9 +253,7 @@ public class Soldier : MonoBehaviour
 
                 LaunchICBM(groundHitPoint);
                 fireTimer = fireRate; // 20.0s reload cooldown
-                ActiveTargetingICBM = null;
-                transform.rotation = Quaternion.LookRotation(Vector3.right);
-                if (icbmReticleObj != null) icbmReticleObj.SetActive(false);
+                CancelICBMTargeting();
                 return;
             }
         }
@@ -273,7 +270,7 @@ public class Soldier : MonoBehaviour
                 if (UIManager.Instance != null && UIManager.Instance.IsPointerOverUI()) return;
 
                 bool clickedThisUnit = false;
-                if (Physics.Raycast(ray, out RaycastHit hit, 250f))
+                if (Physics.Raycast(ray, out RaycastHit hit, 450f))
                 {
                     if (hit.transform == transform || hit.transform.IsChildOf(transform))
                     {
@@ -294,29 +291,100 @@ public class Soldier : MonoBehaviour
 
                 if (clickedThisUnit)
                 {
-                    if (AirSupportManager.Instance != null && (AirSupportManager.Instance.IsTargetingFighter || AirSupportManager.Instance.IsTargetingB2))
-                    {
-                        AirSupportManager.Instance.CancelAllTargeting();
-                    }
-                    if (PlacementManager.Instance != null && PlacementManager.Instance.currentMode != PlacementManager.PlacementMode.None)
-                    {
-                        PlacementManager.Instance.CancelPlacement();
-                    }
-
-                    ActiveTargetingICBM = this;
-                    targetingStartFrame = Time.frameCount;
-                    EnsureICBMReticle();
-                    if (icbmReticleObj != null)
-                    {
-                        icbmReticleObj.SetActive(true);
-                        float diameter = Mathf.Max(2f, aoeHalfExtent * 2f);
-                        icbmReticleObj.transform.localScale = new Vector3(diameter, 0.05f, diameter);
-                        icbmReticleObj.transform.position = new Vector3(groundHitPoint.x, 0.08f, groundHitPoint.z);
-                    }
-                    AudioHelper.PlaySound(SoundEffect.ButtonClick, 0.8f);
+                    BeginICBMTargeting(hasGroundHit, groundHitPoint);
                 }
             }
         }
+    }
+
+    public static Soldier GetPrimaryICBMLauncher()
+    {
+        Soldier fallback = null;
+        for (int i = 0; i < ActiveSoldiers.Count; i++)
+        {
+            Soldier s = ActiveSoldiers[i];
+            if (s == null || !s.isICBMLauncher || s.isDead || s.health <= 0f) continue;
+            if (s.fireTimer <= 0f) return s;
+            if (fallback == null) fallback = s;
+        }
+        return fallback;
+    }
+
+    public static void CancelICBMTargeting()
+    {
+        if (ActiveTargetingICBM != null)
+        {
+            ActiveTargetingICBM.transform.rotation = Quaternion.LookRotation(Vector3.right);
+            ActiveTargetingICBM = null;
+        }
+        if (icbmReticleObj != null)
+        {
+            icbmReticleObj.SetActive(false);
+        }
+    }
+
+    public static void TogglePrimaryICBMTargeting()
+    {
+        if (GameManager.Instance == null || GameManager.Instance.CurrentState != GameManager.GameState.Combat)
+        {
+            return;
+        }
+
+        if (ActiveTargetingICBM != null)
+        {
+            CancelICBMTargeting();
+            AudioHelper.PlaySound(SoundEffect.ButtonClick, 0.6f);
+            return;
+        }
+
+        Soldier icbm = GetPrimaryICBMLauncher();
+        if (icbm == null) return;
+
+        if (icbm.fireTimer > 0f)
+        {
+            AudioHelper.PlaySound(SoundEffect.Hit, 0.45f);
+            return;
+        }
+
+        Camera cam = Camera.main;
+        bool hasGroundHit = false;
+        Vector3 groundHitPoint = icbm.transform.position + Vector3.right * 10f;
+        if (cam != null)
+        {
+            Ray ray = cam.ScreenPointToRay(Input.mousePosition);
+            Plane groundPlane = new Plane(Vector3.up, Vector3.zero);
+            if (groundPlane.Raycast(ray, out float enter))
+            {
+                hasGroundHit = true;
+                groundHitPoint = ray.GetPoint(enter);
+            }
+        }
+
+        icbm.BeginICBMTargeting(hasGroundHit, groundHitPoint);
+    }
+
+    private void BeginICBMTargeting(bool hasGroundHit, Vector3 groundHitPoint)
+    {
+        if (AirSupportManager.Instance != null && (AirSupportManager.Instance.IsTargetingFighter || AirSupportManager.Instance.IsTargetingB2))
+        {
+            AirSupportManager.Instance.CancelAllTargeting();
+        }
+        if (PlacementManager.Instance != null && PlacementManager.Instance.currentMode != PlacementManager.PlacementMode.None)
+        {
+            PlacementManager.Instance.CancelPlacement();
+        }
+
+        ActiveTargetingICBM = this;
+        targetingStartFrame = Time.frameCount;
+        EnsureICBMReticle();
+        if (icbmReticleObj != null && hasGroundHit)
+        {
+            icbmReticleObj.SetActive(true);
+            float diameter = Mathf.Max(2f, aoeHalfExtent * 2f);
+            icbmReticleObj.transform.localScale = new Vector3(diameter, 0.05f, diameter);
+            icbmReticleObj.transform.position = new Vector3(groundHitPoint.x, 0.08f, groundHitPoint.z);
+        }
+        AudioHelper.PlaySound(SoundEffect.ButtonClick, 0.8f);
     }
 
     private static void EnsureICBMReticle()
@@ -830,9 +898,12 @@ public class Soldier : MonoBehaviour
             {
                 icbmStatusStyle = new GUIStyle(GUI.skin.box)
                 {
-                    fontSize = 11,
-                    fontStyle = FontStyle.Bold,
-                    alignment = TextAnchor.MiddleCenter
+                    font = GameFontTheme.BodyBoldFont,
+                    fontSize = 13,
+                    fontStyle = FontStyle.Normal,
+                    alignment = TextAnchor.MiddleCenter,
+                    wordWrap = false,
+                    clipping = TextClipping.Overflow
                 };
                 icbmStatusStyle.normal.textColor = Color.white;
             }
@@ -846,7 +917,7 @@ public class Soldier : MonoBehaviour
             }
             else if (fireTimer <= 0f)
             {
-                statusText = "🚀 ICBM READY (Click to Aim)";
+                statusText = "🚀 ICBM READY [R] (Click to Aim)";
                 boxTint = new Color(0.15f, 0.65f, 0.25f, 0.92f);
             }
             else
@@ -855,11 +926,11 @@ public class Soldier : MonoBehaviour
                 boxTint = new Color(0.35f, 0.35f, 0.35f, 0.88f);
             }
 
-            float tagW = (ActiveTargetingICBM == this) ? 235f : 165f;
-            float tagH = 22f;
+            float tagW = (ActiveTargetingICBM == this) ? 345f : 265f;
+            float tagH = 24f;
             Color prevBg = GUI.backgroundColor;
             GUI.backgroundColor = boxTint;
-            GUI.Box(new Rect(screenPos.x - tagW / 2f, y - 26f, tagW, tagH), statusText, icbmStatusStyle);
+            GUI.Box(new Rect(screenPos.x - tagW / 2f, y - 28f, tagW, tagH), statusText, icbmStatusStyle);
             GUI.backgroundColor = prevBg;
         }
     }
