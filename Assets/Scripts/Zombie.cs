@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 
 public class Zombie : MonoBehaviour
@@ -18,6 +19,12 @@ public class Zombie : MonoBehaviour
     public bool isBombaz = false;
     public bool isBombazEnraged = false;
     public float bombazBaseNormalSpeed = 1.8f;
+    public bool isSpitter = false;
+    public bool isHowler = false;
+    public bool isLeaper = false;
+    public bool isBroodmother = false;
+    public bool isCrawler = false;
+    public bool isCryoHazmat = false;
     public bool isEliteUpgrade = false;
     public string eliteTitle = "⚡ ELITE ZOMBIE";
     public float damageResistance = 0f; // 0.5f = 50% bullet & weapon damage resistance
@@ -26,6 +33,11 @@ public class Zombie : MonoBehaviour
     private float postAttackFreezeTimer = 0f; // Elite zombies stand still for 3.0s after landing an attack
     private float stunTimer = 0f; // Stunned duration (e.g. 1.5s from Guardian Lv.3 Shield Push)
     public bool IsStunned => stunTimer > 0f;
+    private float howlPulseTimer = 1.5f;
+    private float howlBuffTimer = 0f; // +30% move speed & 20% damage reduction when buffed by a Howler
+    private float cryoAuraTimer = 0.6f;
+    private float leapCooldownTimer = 0.4f;
+    private bool isLeaping = false;
     private Soldier targetSoldier;
     private Building targetBuilding;
     public bool isDead { get; private set; } = false;
@@ -39,6 +51,7 @@ public class Zombie : MonoBehaviour
     private static GUIStyle buffedLabelStyle;
     private static GUIStyle bombazLabelStyle;
     private static GUIStyle eliteLabelStyle;
+    private static GUIStyle specialVariantLabelStyle;
 
     void Start()
     {
@@ -59,6 +72,15 @@ public class Zombie : MonoBehaviour
             return;
         }
 
+        if (howlBuffTimer > 0f)
+        {
+            howlBuffTimer = Mathf.Max(0f, howlBuffTimer - Time.deltaTime);
+        }
+        if (leapCooldownTimer > 0f)
+        {
+            leapCooldownTimer = Mathf.Max(0f, leapCooldownTimer - Time.deltaTime);
+        }
+
         // Bombaz Ability Check: When HP < 40%, speed surges to 150% of normal speed!
         if (isBombaz && !isBombazEnraged && currentHealth <= maxHealth * 0.40f && currentHealth > 0f)
         {
@@ -72,12 +94,41 @@ public class Zombie : MonoBehaviour
             return;
         }
 
+        if (isLeaping)
+        {
+            return;
+        }
+
+        // Howler Periodic Aura Pulse: Buffs nearby zombies (+30% speed, +20% armor, 8% heal) every 4.5s
+        if (isHowler)
+        {
+            howlPulseTimer -= Time.deltaTime;
+            if (howlPulseTimer <= 0f)
+            {
+                PerformHowlerWarCry();
+                howlPulseTimer = 4.5f;
+            }
+        }
+
+        // Cryo Hazmat Periodic Mist Aura: Slows soldiers within 5.2m by 35%
+        if (isCryoHazmat)
+        {
+            cryoAuraTimer -= Time.deltaTime;
+            if (cryoAuraTimer <= 0f)
+            {
+                PulseCryoDisruptorAura(5.2f, false);
+                cryoAuraTimer = 1.0f;
+            }
+        }
+
         // Elite Zombie Mechanic: Stand completely still for 3.0 seconds after landing a hit!
         if (postAttackFreezeTimer > 0f)
         {
             postAttackFreezeTimer -= Time.deltaTime;
             return;
         }
+
+        float effectiveSpeed = moveSpeed * ((howlBuffTimer > 0f) ? 1.30f : 1.0f);
 
         // Periodically refresh target or find target if current target is gone/dead
         retargetTimer -= Time.deltaTime;
@@ -100,7 +151,7 @@ public class Zombie : MonoBehaviour
                 if (toWaypoint != Vector3.zero)
                 {
                     Vector3 moveDir = toWaypoint.normalized;
-                    transform.position += moveDir * moveSpeed * Time.deltaTime;
+                    transform.position += moveDir * effectiveSpeed * Time.deltaTime;
                     transform.rotation = Quaternion.LookRotation(moveDir);
                 }
             }
@@ -123,6 +174,10 @@ public class Zombie : MonoBehaviour
                     {
                         PerformGroundSlam(targetBuilding.transform.position);
                     }
+                    else if (isSpitter)
+                    {
+                        FireAcidSpit(targetBuilding.transform.position, null, targetBuilding);
+                    }
                     else
                     {
                         targetBuilding.TakeDamage(damage);
@@ -142,6 +197,15 @@ public class Zombie : MonoBehaviour
         if (targetSoldier != null)
         {
             float dist = Vector3.Distance(transform.position, targetSoldier.transform.position);
+
+            // Leaper Ability: Pounce over frontline defenders onto inner-ring support/marksman units!
+            if (isLeaper && leapCooldownTimer <= 0f && dist >= 3.8f && dist <= 10.5f)
+            {
+                Soldier leapTarget = FindBestLeaperBacklineTarget() ?? targetSoldier;
+                StartCoroutine(PerformLeapRoutine(leapTarget));
+                return;
+            }
+
             Vector3 waypoint = GetNextCrossWaypoint(transform.position, targetSoldier.transform.position);
             Vector3 toWaypoint = (waypoint - transform.position);
             toWaypoint.y = 0; // Flat horizontal movement
@@ -152,7 +216,7 @@ public class Zombie : MonoBehaviour
                 if (toWaypoint != Vector3.zero)
                 {
                     Vector3 moveDir = toWaypoint.normalized;
-                    transform.position += moveDir * moveSpeed * Time.deltaTime;
+                    transform.position += moveDir * effectiveSpeed * Time.deltaTime;
                     transform.rotation = Quaternion.LookRotation(moveDir);
                 }
             }
@@ -165,7 +229,7 @@ public class Zombie : MonoBehaviour
                     return;
                 }
 
-                // In melee attack range: face soldier directly and strike
+                // In attack range: face soldier directly and strike / spit
                 Vector3 toSoldier = (targetSoldier.transform.position - transform.position);
                 toSoldier.y = 0;
                 if (toSoldier != Vector3.zero)
@@ -180,6 +244,10 @@ public class Zombie : MonoBehaviour
                     {
                         // Tyrant Boss: Ground Slam AOE (Guardian Tier 3 survives 1 hit / dies in 2 hits)
                         PerformGroundSlam(targetSoldier.transform.position, targetSoldier);
+                    }
+                    else if (isSpitter)
+                    {
+                        FireAcidSpit(targetSoldier.transform.position, targetSoldier, null);
                     }
                     else
                     {
@@ -223,7 +291,7 @@ public class Zombie : MonoBehaviour
         if (toMarch != Vector3.zero)
         {
             Vector3 marchDir = toMarch.normalized;
-            transform.position += marchDir * moveSpeed * Time.deltaTime;
+            transform.position += marchDir * effectiveSpeed * Time.deltaTime;
             transform.rotation = Quaternion.LookRotation(marchDir);
         }
         transform.position = ClampPositionToCross(transform.position);
@@ -772,6 +840,12 @@ public class Zombie : MonoBehaviour
             {
                 dmg *= 0.5f; // 50% bullet resistance for Tyrant Boss
             }
+
+            // Howler War Cry Buff grants 20% damage reduction while active
+            if (howlBuffTimer > 0f)
+            {
+                dmg *= 0.80f;
+            }
         }
 
         currentHealth -= dmg;
@@ -786,6 +860,300 @@ public class Zombie : MonoBehaviour
         if (currentHealth <= 0f)
         {
             Die(true);
+        }
+    }
+
+    // =========================================================================
+    // NEW SPECIAL ZOMBIE ABILITIES (SPITTER, HOWLER, LEAPER, BROODMOTHER, CRYO)
+    // =========================================================================
+
+    public void ApplyHowlerBuff(float duration, float healPct)
+    {
+        if (isDead) return;
+        howlBuffTimer = Mathf.Max(howlBuffTimer, duration);
+        if (healPct > 0f && currentHealth > 0f && currentHealth < maxHealth)
+        {
+            currentHealth = Mathf.Min(maxHealth, currentHealth + maxHealth * healPct);
+        }
+    }
+
+    /// <summary>
+    /// Howler Ability: Emits a 6.5m war cry wave every 4.5s that buffs nearby zombies
+    /// (+30% movement speed, 20% damage reduction for 4.0s, and heals 8% Max HP).
+    /// </summary>
+    private void PerformHowlerWarCry()
+    {
+        if (isDead) return;
+        const float HOWL_RADIUS = 6.5f;
+        const float BUFF_DURATION = 4.0f;
+
+        GameObject waveRing = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        waveRing.name = "Howler_WarCryAuraRing";
+        waveRing.transform.position = new Vector3(transform.position.x, 0.14f, transform.position.z);
+        waveRing.transform.localScale = new Vector3(HOWL_RADIUS * 2f, 0.04f, HOWL_RADIUS * 2f);
+        Collider col = waveRing.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+        Renderer rend = waveRing.GetComponent<Renderer>();
+        if (rend != null)
+        {
+            rend.sharedMaterial = CrossMapVisualizer.CreateEmissiveExplosionMaterial(new Color(0.95f, 0.20f, 0.80f, 0.55f), false, null, 3150);
+            rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            rend.receiveShadows = false;
+        }
+        Destroy(waveRing, 0.38f);
+
+        Zombie[] allZombies = FindObjectsByType<Zombie>(FindObjectsSortMode.None);
+        Vector2 myPos2D = new Vector2(transform.position.x, transform.position.z);
+        foreach (Zombie z in allZombies)
+        {
+            if (z == null || z.isDead) continue;
+            float d = Vector2.Distance(myPos2D, new Vector2(z.transform.position.x, z.transform.position.z));
+            if (d <= HOWL_RADIUS)
+            {
+                z.ApplyHowlerBuff(BUFF_DURATION, 0.08f);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Cryo Hazmat Ability: Emits a freezing chemical mist (5.2m periodic aura, 6.5m on death)
+    /// that slows nearby soldiers' fire rate and movement speed by 35% for 3.5s.
+    /// </summary>
+    private void PulseCryoDisruptorAura(float radius, bool isDeathBlast)
+    {
+        GameObject mistRing = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        mistRing.name = isDeathBlast ? "CryoHazmat_DeathFrostBlast" : "CryoHazmat_MistPulse";
+        mistRing.transform.position = new Vector3(transform.position.x, 0.13f, transform.position.z);
+        mistRing.transform.localScale = new Vector3(radius * 2f, isDeathBlast ? 0.07f : 0.035f, radius * 2f);
+        Collider col = mistRing.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+        Renderer rend = mistRing.GetComponent<Renderer>();
+        if (rend != null)
+        {
+            Color c = isDeathBlast ? new Color(0.20f, 0.92f, 1.0f, 0.72f) : new Color(0.20f, 0.88f, 1.0f, 0.38f);
+            rend.sharedMaterial = CrossMapVisualizer.CreateEmissiveExplosionMaterial(c, false, null, 3152);
+            rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            rend.receiveShadows = false;
+        }
+        Destroy(mistRing, isDeathBlast ? 0.45f : 0.28f);
+
+        Vector2 myPos2D = new Vector2(transform.position.x, transform.position.z);
+        for (int i = 0; i < Soldier.ActiveSoldiers.Count; i++)
+        {
+            Soldier s = Soldier.ActiveSoldiers[i];
+            if (s == null || s.isDead) continue;
+            float d = Vector2.Distance(myPos2D, new Vector2(s.transform.position.x, s.transform.position.z));
+            if (d <= radius)
+            {
+                s.ApplyCryoSlow(isDeathBlast ? 4.5f : 3.5f);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Leaper Target Selection: Prioritizes inner-ring Healers or Snipers within 12.5m so it leaps over frontline Guardians!
+    /// </summary>
+    private Soldier FindBestLeaperBacklineTarget()
+    {
+        Soldier bestBackline = null;
+        float closestDist = Mathf.Infinity;
+        for (int i = 0; i < Soldier.ActiveSoldiers.Count; i++)
+        {
+            Soldier s = Soldier.ActiveSoldiers[i];
+            if (s == null || s.isDead || s.isICBMLauncher) continue;
+            if (!s.isHealer && !s.isSniper) continue;
+
+            float d = Vector3.Distance(transform.position, s.transform.position);
+            if (d >= 3.5f && d <= 12.5f && d < closestDist)
+            {
+                closestDist = d;
+                bestBackline = s;
+            }
+        }
+        return bestBackline;
+    }
+
+    private IEnumerator PerformLeapRoutine(Soldier leapTarget)
+    {
+        if (leapTarget == null || leapTarget.isDead) yield break;
+
+        isLeaping = true;
+        leapCooldownTimer = 7.0f;
+        targetSoldier = leapTarget;
+
+        Vector3 startPos = transform.position;
+        Vector3 rawEndPos = leapTarget.transform.position;
+        Vector3 toEnd = rawEndPos - startPos;
+        toEnd.y = 0f;
+        if (toEnd.sqrMagnitude > 0.01f)
+        {
+            transform.rotation = Quaternion.LookRotation(toEnd.normalized);
+        }
+
+        float duration = 0.42f;
+        float elapsed = 0f;
+        const float ARC_HEIGHT = 2.8f;
+
+        while (elapsed < duration && !isDead)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            if (leapTarget != null && !leapTarget.isDead)
+            {
+                rawEndPos = leapTarget.transform.position;
+            }
+            Vector3 flatEnd = ClampPositionToCross(new Vector3(rawEndPos.x, startPos.y, rawEndPos.z));
+            Vector3 pos = Vector3.Lerp(startPos, flatEnd, t);
+            pos.y = startPos.y + Mathf.Sin(t * Mathf.PI) * ARC_HEIGHT;
+            transform.position = pos;
+            yield return null;
+        }
+
+        if (!isDead)
+        {
+            Vector3 landedPos = transform.position;
+            landedPos.y = startPos.y;
+            transform.position = ClampPositionToCross(landedPos);
+
+            if (leapTarget != null && !leapTarget.isDead && Vector3.Distance(transform.position, leapTarget.transform.position) <= 2.4f)
+            {
+                leapTarget.TakeDamage(damage * 1.25f);
+                attackTimer = attackRate;
+            }
+        }
+
+        isLeaping = false;
+    }
+
+    /// <summary>
+    /// Spitter Ability: Launches an arcing acid glob at targetPos (up to 9.5m range) that leaves a corrosive 2.2m acid puddle for 2.5s.
+    /// </summary>
+    private void FireAcidSpit(Vector3 targetPos, Soldier hitSoldier, Building hitBuilding)
+    {
+        Vector3 startPos = transform.position + Vector3.up * 0.9f + transform.forward * 0.35f;
+        float spitDmg = damage;
+        MonoBehaviour host = (WaveManager.Instance != null) ? (MonoBehaviour)WaveManager.Instance : this;
+        host.StartCoroutine(AcidSpitAndPuddleRoutine(startPos, targetPos, spitDmg, hitSoldier, hitBuilding));
+    }
+
+    private static IEnumerator AcidSpitAndPuddleRoutine(Vector3 startPos, Vector3 targetPos, float directDmg, Soldier hitSoldier, Building hitBuilding)
+    {
+        GameObject glob = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        glob.name = "Spitter_AcidGlob";
+        glob.transform.position = startPos;
+        glob.transform.localScale = new Vector3(0.32f, 0.32f, 0.42f);
+        Collider gCol = glob.GetComponent<Collider>();
+        if (gCol != null) Destroy(gCol);
+        Renderer gRend = glob.GetComponent<Renderer>();
+        if (gRend != null)
+        {
+            gRend.sharedMaterial = CrossMapVisualizer.CreateEmissiveExplosionMaterial(new Color(0.45f, 1.0f, 0.15f, 0.95f), true, null, 3158);
+        }
+
+        float travelTime = 0.32f;
+        float t = 0f;
+        while (t < travelTime)
+        {
+            t += Time.deltaTime;
+            float pct = Mathf.Clamp01(t / travelTime);
+            if (hitSoldier != null && !hitSoldier.isDead)
+            {
+                targetPos = hitSoldier.transform.position;
+            }
+            Vector3 p = Vector3.Lerp(startPos, targetPos, pct);
+            p.y += Mathf.Sin(pct * Mathf.PI) * 1.4f;
+            if (glob != null) glob.transform.position = p;
+            yield return null;
+        }
+        if (glob != null) Destroy(glob);
+
+        // Direct impact damage
+        if (hitSoldier != null && !hitSoldier.isDead)
+        {
+            hitSoldier.TakeDamage(directDmg);
+        }
+        else if (hitBuilding != null)
+        {
+            hitBuilding.TakeDamage(directDmg);
+        }
+
+        // Spawn corrosive acid puddle on ground (1.6m radius for 1.5s, 3 ticks every 0.5s)
+        const float PUDDLE_RADIUS = 1.6f;
+        GameObject puddle = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        puddle.name = "Spitter_AcidPuddle";
+        puddle.transform.position = new Vector3(targetPos.x, 0.11f, targetPos.z);
+        puddle.transform.localScale = new Vector3(PUDDLE_RADIUS * 2f, 0.03f, PUDDLE_RADIUS * 2f);
+        Collider pCol = puddle.GetComponent<Collider>();
+        if (pCol != null) Destroy(pCol);
+        Renderer pRend = puddle.GetComponent<Renderer>();
+        if (pRend != null)
+        {
+            pRend.sharedMaterial = CrossMapVisualizer.CreateEmissiveExplosionMaterial(new Color(0.38f, 0.95f, 0.15f, 0.45f), false, null, 3148);
+            pRend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            pRend.receiveShadows = false;
+        }
+
+        Vector2 puddlePos2D = new Vector2(targetPos.x, targetPos.z);
+        float tickDmg = directDmg * 0.22f;
+        for (int tick = 0; tick < 3; tick++)
+        {
+            yield return new WaitForSeconds(0.5f);
+            if (GameManager.Instance != null && GameManager.Instance.CurrentState != GameManager.GameState.Combat)
+            {
+                break;
+            }
+            for (int i = Soldier.ActiveSoldiers.Count - 1; i >= 0; i--)
+            {
+                Soldier s = Soldier.ActiveSoldiers[i];
+                if (s == null || s.isDead) continue;
+                float d = Vector2.Distance(puddlePos2D, new Vector2(s.transform.position.x, s.transform.position.z));
+                if (d <= PUDDLE_RADIUS)
+                {
+                    s.TakeDamage(tickDmg);
+                }
+            }
+        }
+
+        if (puddle != null) Destroy(puddle);
+    }
+
+    /// <summary>
+    /// Broodmother Death Split: Spawns 3 fast Crawler hatchlings around her death position.
+    /// Registered with WaveManager BEFORE OnZombieDied so the wave does not clear prematurely.
+    /// </summary>
+    private void SpawnBroodmotherCrawlers()
+    {
+        const int CRAWLER_COUNT = 3;
+        float crawlerHp = Mathf.Max(22f, maxHealth * 0.16f);
+        float crawlerDmg = Mathf.Max(5f, damage * 0.45f);
+        float crawlerSpeed = Mathf.Min(3.8f, Mathf.Max(2.6f, moveSpeed * 2.4f));
+
+        for (int i = 0; i < CRAWLER_COUNT; i++)
+        {
+            float angle = (i * 120f + Random.Range(-15f, 15f)) * Mathf.Deg2Rad;
+            Vector3 offset = new Vector3(Mathf.Cos(angle) * 1.25f, 0f, Mathf.Sin(angle) * 1.25f);
+            Vector3 spawnPos = ClampPositionToCross(transform.position + offset);
+
+            GameObject cObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cObj.name = $"Crawler_Hatchling_{i + 1}";
+            cObj.transform.position = spawnPos;
+            cObj.transform.rotation = transform.rotation;
+            cObj.transform.localScale = Vector3.one;
+
+            UnitBlockVisualizer.AttachZombieVisuals(cObj, "Crawler", false);
+            Zombie crawler = cObj.AddComponent<Zombie>();
+            crawler.isCrawler = true;
+            crawler.maxHealth = crawlerHp;
+            crawler.currentHealth = crawlerHp;
+            crawler.damage = crawlerDmg;
+            crawler.moveSpeed = crawlerSpeed;
+            crawler.attackRate = 0.75f;
+            crawler.attackRange = 1.2f;
+
+            if (WaveManager.Instance != null)
+            {
+                WaveManager.Instance.RegisterExtraSpawnedZombie(crawler);
+            }
         }
     }
 
@@ -809,6 +1177,19 @@ public class Zombie : MonoBehaviour
         isDead = true;
         AudioHelper.PlaySound(SoundEffect.ZombieDeath, 0.55f);
 
+        bool inActiveCombat = byPlayer && GameManager.Instance != null && GameManager.Instance.CurrentState == GameManager.GameState.Combat;
+        if (inActiveCombat)
+        {
+            if (isBroodmother)
+            {
+                SpawnBroodmotherCrawlers();
+            }
+            if (isCryoHazmat)
+            {
+                PulseCryoDisruptorAura(6.5f, true);
+            }
+        }
+
         if (WaveManager.Instance != null)
         {
             WaveManager.Instance.OnZombieDied(this);
@@ -819,11 +1200,18 @@ public class Zombie : MonoBehaviour
             // Rebalanced: Significantly reduced zombie gold drops to maintain a tight, strategic economy.
             // Stage Clear rewards remain the primary dependable income source.
             // - Tyrant Boss: 30 Gold (Bounty for defeating the Boss!)
-            // - Buffed Zombie: 2 Gold (reduced from 10)
-            // - Elite Zombie: 1 Gold
+            // - Buffed Zombie: 2 Gold
+            // - Broodmother / CryoHazmat / Elite Zombie: 1 Gold (100%)
+            // - Howler: 50% chance for 1 Gold
+            // - Spitter / Leaper / Bombaz: 15% chance for 1 Gold
+            // - Crawler hatchlings: 0 Gold (prevents farming gold from Broodmother splits)
             // - Standard Zombie: 6% chance for 1 Gold scrap (~1 gold per 16 zombies)
             int bonus = 0;
-            if (isBossUnit)
+            if (isCrawler)
+            {
+                bonus = 0;
+            }
+            else if (isBossUnit)
             {
                 bonus = 30;
                 Debug.Log($"[Zombie] 🏆 TYRANT BOSS DEFEATED! Rewarded +30 Gold bounty!");
@@ -832,9 +1220,17 @@ public class Zombie : MonoBehaviour
             {
                 bonus = 2;
             }
-            else if (isEliteUpgrade)
+            else if (isBroodmother || isCryoHazmat || isEliteUpgrade)
             {
                 bonus = 1;
+            }
+            else if (isHowler)
+            {
+                bonus = (Random.value < 0.50f) ? 1 : 0;
+            }
+            else if (isSpitter || isLeaper || isBombaz)
+            {
+                bonus = (Random.value < 0.15f) ? 1 : 0;
             }
             else
             {
@@ -880,7 +1276,7 @@ public class Zombie : MonoBehaviour
         float x = screenPos.x - barW / 2f;
         float y = Screen.height - screenPos.y;
 
-        // Draw Boss or Buffed or Bombaz or Elite Title above bar
+        // Draw Boss or Bombaz or Elite Title above bar (Buffed Zombie title hidden)
         if (isBoss)
         {
             if (bossLabelStyle == null)
@@ -899,25 +1295,6 @@ public class Zombie : MonoBehaviour
             float labelW = 240f;
             float labelH = 26f;
             GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 24f, labelW, labelH), "Tyrant Boss", bossLabelStyle);
-        }
-        else if (isBuffed)
-        {
-            if (buffedLabelStyle == null)
-            {
-                buffedLabelStyle = new GUIStyle(GUI.skin.label)
-                {
-                    font = GameFontTheme.BodyBoldFont,
-                    fontSize = 14,
-                    fontStyle = FontStyle.Normal,
-                    alignment = TextAnchor.MiddleCenter,
-                    wordWrap = false,
-                    clipping = TextClipping.Overflow
-                };
-                buffedLabelStyle.normal.textColor = new Color(1.0f, 0.65f, 0.2f);
-            }
-            float labelW = 240f;
-            float labelH = 24f;
-            GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 22f, labelW, labelH), "💪 BUFFED ZOMBIE", buffedLabelStyle);
         }
         else if (isBomb)
         {
@@ -959,6 +1336,52 @@ public class Zombie : MonoBehaviour
             float labelH = 24f;
             string statusSuffix = (postAttackFreezeTimer > 0f) ? $" ({postAttackFreezeTimer:0.0}s)" : "";
             GUI.Label(new Rect(screenPos.x - labelW / 2f, y - 22f, labelW, labelH), eliteTitle + statusSuffix, eliteLabelStyle);
+        }
+        else if (isSpitter || isHowler || isLeaper || isBroodmother || isCryoHazmat)
+        {
+            if (specialVariantLabelStyle == null)
+            {
+                specialVariantLabelStyle = new GUIStyle(GUI.skin.label)
+                {
+                    font = GameFontTheme.BodyBoldFont,
+                    fontSize = 13,
+                    fontStyle = FontStyle.Normal,
+                    alignment = TextAnchor.MiddleCenter,
+                    wordWrap = false,
+                    clipping = TextClipping.Overflow
+                };
+            }
+
+            string specTitle;
+            Color specColor;
+            if (isSpitter)
+            {
+                specTitle = "🧪 ACID SPITTER";
+                specColor = new Color(0.55f, 1.0f, 0.25f);
+            }
+            else if (isHowler)
+            {
+                specTitle = "📢 HOWLER";
+                specColor = new Color(1.0f, 0.38f, 0.88f);
+            }
+            else if (isLeaper)
+            {
+                specTitle = "🐾 LEAPER";
+                specColor = new Color(1.0f, 0.35f, 0.38f);
+            }
+            else if (isBroodmother)
+            {
+                specTitle = "🕷️ BROODMOTHER";
+                specColor = new Color(0.75f, 0.50f, 1.0f);
+            }
+            else
+            {
+                specTitle = "❄️ CRYO HAZMAT";
+                specColor = new Color(0.28f, 0.92f, 1.0f);
+            }
+
+            specialVariantLabelStyle.normal.textColor = new Color(specColor.r, specColor.g, specColor.b, visAlpha);
+            GUI.Label(new Rect(screenPos.x - 120f, y - 22f, 240f, 24f), specTitle, specialVariantLabelStyle);
         }
         else if (stunTimer > 0f)
         {

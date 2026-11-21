@@ -30,8 +30,14 @@ public class UIManager : MonoBehaviour
     private float dayTransitionAlpha = 0f;
     private int dayTransitionStartFrame = -1;
     private int dayTransitionSuppressFrame = -1;
+    private bool isSuppressingTransitionClickRelease = false;
     private const float DAY_TRANSITION_HOLD = 1.10f;
     private const float DAY_TRANSITION_FADE = 1.70f;
+
+    // Route Selection bottom slide-in animation (0 = below screen, 1 = resting position)
+    private float routeSlideProgress = 0f;
+    private const float ROUTE_SLIDE_DURATION = 0.42f;
+    private GameManager.GameState lastObservedUiState = GameManager.GameState.MainMenu;
 
     // UI Toggle states
     public bool isBuildMenuOpen = true;
@@ -76,23 +82,66 @@ public class UIManager : MonoBehaviour
         dayTransitionElapsed = 0f;
         dayTransitionAlpha = 1f;
         dayTransitionStartFrame = Time.frameCount;
+        dayTransitionSuppressFrame = Time.frameCount;
+        routeSlideProgress = 0f;
     }
 
     public void CancelDayTransition()
     {
         isDayTransitionActive = false;
         dayTransitionAlpha = 0f;
+        isSuppressingTransitionClickRelease = false;
     }
 
     private void DismissDayTransitionImmediate()
     {
         isDayTransitionActive = false;
         dayTransitionAlpha = 0f;
-        dayTransitionSuppressFrame = Time.frameCount;
+        dayTransitionSuppressFrame = Time.frameCount + 1;
+        isSuppressingTransitionClickRelease = true;
+        routeSlideProgress = 0f;
+    }
+
+    private float GetAnimatedRouteDialogY(float dialogH)
+    {
+        float targetY = Screen.height / 2f - dialogH / 2f;
+        float startY = Screen.height + 40f;
+        float t = Mathf.Clamp01(routeSlideProgress);
+        float eased = 1f - Mathf.Pow(1f - t, 3f); // Cubic ease-out slide up from bottom
+        return Mathf.Lerp(startY, targetY, eased);
     }
 
     private void UpdateDayTransition()
     {
+        if (isSuppressingTransitionClickRelease && !Input.GetMouseButton(0) && Time.frameCount > dayTransitionSuppressFrame)
+        {
+            isSuppressingTransitionClickRelease = false;
+        }
+
+        if (GameManager.Instance != null)
+        {
+            if (GameManager.Instance.CurrentState != lastObservedUiState)
+            {
+                if (GameManager.Instance.CurrentState == GameManager.GameState.RouteSelection)
+                {
+                    routeSlideProgress = 0f;
+                }
+                lastObservedUiState = GameManager.Instance.CurrentState;
+            }
+
+            if (GameManager.Instance.CurrentState == GameManager.GameState.RouteSelection)
+            {
+                if (isDayTransitionActive)
+                {
+                    routeSlideProgress = 0f;
+                }
+                else
+                {
+                    routeSlideProgress = Mathf.MoveTowards(routeSlideProgress, 1f, Time.unscaledDeltaTime / ROUTE_SLIDE_DURATION);
+                }
+            }
+        }
+
         if (!isDayTransitionActive) return;
 
         if (Time.frameCount > dayTransitionStartFrame && Input.GetMouseButtonDown(0))
@@ -235,7 +284,7 @@ public class UIManager : MonoBehaviour
     /// </summary>
     public bool IsPointerOverUI()
     {
-        if (isDayTransitionActive || Time.frameCount <= dayTransitionSuppressFrame) return true;
+        if (isDayTransitionActive || isSuppressingTransitionClickRelease || Time.frameCount <= dayTransitionSuppressFrame) return true;
         if (isQuitConfirmOpen) return true;
         if (GameManager.Instance != null && GameManager.Instance.CurrentState == GameManager.GameState.MainMenu)
         {
@@ -333,7 +382,8 @@ public class UIManager : MonoBehaviour
                 int cardCount = 1 + (showElite ? 1 : 0) + (showEvent ? 1 : 0);
                 float rW = (cardCount == 3) ? 920f : ((cardCount == 2) ? 620f : 360f);
                 float rH = 355f;
-                Rect routeDialog = new Rect(Screen.width / 2f - rW / 2f, Screen.height / 2f - rH / 2f, rW, rH);
+                float rY = GetAnimatedRouteDialogY(rH);
+                Rect routeDialog = new Rect(Screen.width / 2f - rW / 2f, rY, rW, rH);
                 if (routeDialog.Contains(mouseGuiPos)) return true;
             }
             else if (GameManager.Instance.CurrentState == GameManager.GameState.Victory)
@@ -535,17 +585,22 @@ public class UIManager : MonoBehaviour
             return;
         }
 
-        // Intercept left-click while DAY transition is visible so clicking skips immediately without hitting UI beneath
+        // Intercept all mouse events while DAY transition is active or while releasing the click that skipped it
         Event curEvt = Event.current;
         if (curEvt != null && curEvt.isMouse)
         {
-            if (isDayTransitionActive && Time.frameCount > dayTransitionStartFrame && curEvt.type == EventType.MouseDown && curEvt.button == 0)
+            if (isDayTransitionActive)
             {
-                DismissDayTransitionImmediate();
+                if (Time.frameCount > dayTransitionStartFrame && curEvt.type == EventType.MouseDown && curEvt.button == 0)
+                {
+                    DismissDayTransitionImmediate();
+                }
+                GUIUtility.hotControl = 0;
                 curEvt.Use();
             }
-            else if (Time.frameCount <= dayTransitionSuppressFrame)
+            else if (isSuppressingTransitionClickRelease || Time.frameCount <= dayTransitionSuppressFrame)
             {
+                GUIUtility.hotControl = 0;
                 curEvt.Use();
             }
         }
@@ -1697,9 +1752,9 @@ public class UIManager : MonoBehaviour
                 body =
                     stockNotice +
                     "• Cost: 50 Gold, 20 Materials | Supply: 2 SUP\n" +
-                    "• Spawns: 1 Field Medic every 20.0s\n" +
+                    "• Spawns: 1 Field Medic every 15.0s\n" +
                     "• Medic Health: 70 HP (Tough unit)\n" +
-                    "• Attack: 6 dmg / shot | Range: 7.0m\n" +
+                    "• Heal: 14 HP (+7 HP 2.2m Splash) | Range: 7.0m\n" +
                     "★ Role: Heals squad & boosts frontline survival.";
                 break;
 
@@ -1745,7 +1800,7 @@ public class UIManager : MonoBehaviour
                     "• Spawns: Light Tank every 22.0s (Max: 4 Tanks)\n" +
                     "• Attack: 4.0s / Shot | Circular AOE (3x3 Eq. Area)\n" +
                     "• DPS: 100 DPS (400 dmg/shot)\n" +
-                    "• Speed: 1.1 m/s (Armored vehicle)\n" +
+                    "• Speed: 1.8 m/s (Armored vehicle)\n" +
                     "★ Role: Heavy AOE artillery obliterates hordes.";
                 break;
 
@@ -1791,7 +1846,7 @@ public class UIManager : MonoBehaviour
                     stockNotice +
                     "• Cost: 100 Gold, 40 Materials | Supply: 0 SUP\n" +
                     "• Placement: Base & Frontline to Crossroads\n" +
-                    "• Attack: Heavy Fire (1.00s interval | 14m Range)\n" +
+                    "• Attack: Heavy Fire (1.00s interval | 20m Range)\n" +
                     "• Damage: 75.0 dmg / shot (75.0 DPS)\n" +
                     "• Health: 160 HP | Stationary Steel Tower\n" +
                     "★ Role: High-damage stationary watchtower (Single-target).";
@@ -2164,6 +2219,12 @@ public class UIManager : MonoBehaviour
 
     void DrawRouteSelectionUI()
     {
+        // Keep Route Selection hidden below the bottom of the screen during Day Transition, then slide up smoothly
+        if (isDayTransitionActive || routeSlideProgress <= 0.001f)
+        {
+            return;
+        }
+
         if (GameManager.Instance != null &&
             (GameManager.Instance.CurrentDay == 30 || GameManager.Instance.CurrentDay >= GameManager.Instance.maxStages))
         {
@@ -2182,7 +2243,14 @@ public class UIManager : MonoBehaviour
         float dialogW = (cardCount == 3) ? 920f : ((cardCount == 2) ? 620f : 360f);
         float dialogH = 355f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
-        float dialogY = Screen.height / 2f - dialogH / 2f;
+        float dialogY = GetAnimatedRouteDialogY(dialogH);
+
+        bool prevEnabled = GUI.enabled;
+        bool canClickRoutes = !isDayTransitionActive &&
+                              !isSuppressingTransitionClickRelease &&
+                              Time.frameCount > dayTransitionSuppressFrame &&
+                              routeSlideProgress >= 0.90f;
+        GUI.enabled = prevEnabled && canClickRoutes;
 
         GUI.Box(new Rect(dialogX, dialogY, dialogW, dialogH), $"🗺️ {GameManager.Instance.GetStageName().ToUpper()}", boxStyle);
         GUI.Label(new Rect(dialogX + 20, dialogY + 35, dialogW - 40, 32), "Choose your strategic route for this stage:", headerStyle);
@@ -2208,14 +2276,28 @@ public class UIManager : MonoBehaviour
             DrawEventRouteCard(curCardX, routeY, cardW, cardH);
             curCardX += cardW + spacing;
         }
+
+        GUI.enabled = prevEnabled;
     }
 
     void DrawWave30MandatoryRouteUI()
     {
+        if (isDayTransitionActive || routeSlideProgress <= 0.001f)
+        {
+            return;
+        }
+
         float dialogW = 660f;
         float dialogH = 365f;
         float dialogX = Screen.width / 2f - dialogW / 2f;
-        float dialogY = Screen.height / 2f - dialogH / 2f;
+        float dialogY = GetAnimatedRouteDialogY(dialogH);
+
+        bool prevEnabled = GUI.enabled;
+        bool canClickRoutes = !isDayTransitionActive &&
+                              !isSuppressingTransitionClickRelease &&
+                              Time.frameCount > dayTransitionSuppressFrame &&
+                              routeSlideProgress >= 0.90f;
+        GUI.enabled = prevEnabled && canClickRoutes;
 
         int curDay = GameManager.Instance != null ? GameManager.Instance.CurrentDay : 30;
         bool isStage30Gatekeeper = (curDay == 30);
@@ -2279,6 +2361,7 @@ public class UIManager : MonoBehaviour
             GameManager.Instance.SelectEliteBattleRoute();
         }
         GUI.backgroundColor = Color.white;
+        GUI.enabled = prevEnabled;
     }
 
     void DrawBattleRouteCard(float x, float y, float w, float h)

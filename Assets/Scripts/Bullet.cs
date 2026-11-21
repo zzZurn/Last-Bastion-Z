@@ -282,26 +282,53 @@ public class Bullet : MonoBehaviour
             return;
         }
 
+        if (isHeal)
+        {
+            Soldier primaryTarget = (target != null) ? target.GetComponent<Soldier>() : null;
+            if (primaryTarget != null && !primaryTarget.isDead)
+            {
+                primaryTarget.Heal(damage);
+            }
+
+            // 2.2m Splash Heal Mist: Heals nearby allies in the 250° arc for 50% of primary heal (7 HP)
+            const float HEAL_SPLASH_RADIUS = 2.2f;
+            float splashHeal = damage * 0.5f;
+            Vector2 impact2D = new Vector2(impactPos.x, impactPos.z);
+            for (int i = 0; i < Soldier.ActiveSoldiers.Count; i++)
+            {
+                Soldier ally = Soldier.ActiveSoldiers[i];
+                if (ally == null || ally.isDead || ally == primaryTarget) continue;
+                float d = Vector2.Distance(impact2D, new Vector2(ally.transform.position.x, ally.transform.position.z));
+                if (d <= HEAL_SPLASH_RADIUS)
+                {
+                    ally.Heal(splashHeal);
+                }
+            }
+
+            GameObject healRing = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            healRing.name = "Medic_SplashHealRing";
+            healRing.transform.position = new Vector3(impactPos.x, 0.12f, impactPos.z);
+            healRing.transform.localScale = new Vector3(HEAL_SPLASH_RADIUS * 2f, 0.03f, HEAL_SPLASH_RADIUS * 2f);
+            Collider hCol = healRing.GetComponent<Collider>();
+            if (hCol != null) Destroy(hCol);
+            Renderer hRend = healRing.GetComponent<Renderer>();
+            if (hRend != null)
+            {
+                hRend.material.color = new Color(0.20f, 1.0f, 0.48f, 0.45f);
+            }
+            Destroy(healRing, 0.22f);
+
+            Destroy(gameObject);
+            return;
+        }
+
         if (target != null)
         {
-            if (isHeal)
+            Zombie z = target.GetComponent<Zombie>();
+            if (z != null)
             {
-                Soldier s = target.GetComponent<Soldier>();
-                if (s != null)
-                {
-                    s.Heal(damage);
-                }
-                Destroy(gameObject);
-                return;
-            }
-            else
-            {
-                Zombie z = target.GetComponent<Zombie>();
-                if (z != null)
-                {
-                    z.TakeDamage(damage);
-                    hitZombies.Add(z);
-                }
+                z.TakeDamage(damage);
+                hitZombies.Add(z);
             }
         }
         else if (!isHeal)

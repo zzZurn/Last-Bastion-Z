@@ -2268,13 +2268,13 @@ public class CrossMapVisualizer : MonoBehaviour
             r1.receiveShadows = false;
         }
 
-        // Overhead shroud-piercing glow disc (above Y=2.35 shroud so darkness visibly lights up)
+        // Inner bright ground core glow disc (kept at ground level Y=0.17f so it never slices through tall units like Tyrant Boss)
         GameObject overheadGlow = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        overheadGlow.name = "Blast_OverheadLightGlow";
+        overheadGlow.name = "Blast_InnerCoreLightGlow";
         overheadGlow.transform.SetParent(fxRoot.transform, false);
-        overheadGlow.transform.localPosition = new Vector3(0f, 2.42f, 0f);
+        overheadGlow.transform.localPosition = new Vector3(0f, 0.17f, 0f);
         overheadGlow.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        overheadGlow.transform.localScale = new Vector3(glowDiameter * 1.15f, glowDiameter * 1.15f, 1f);
+        overheadGlow.transform.localScale = new Vector3(glowDiameter * 0.62f, glowDiameter * 0.62f, 1f);
         Collider c2 = overheadGlow.GetComponent<Collider>();
         if (c2 != null) Destroy(c2);
         Renderer r2 = overheadGlow.GetComponent<Renderer>();
@@ -2359,7 +2359,7 @@ public class ExplosionFlashAnimator : MonoBehaviour
         }
         if (_overheadDisc != null)
         {
-            float d = _initialDiameter * 1.15f * scaleMult;
+            float d = _initialDiameter * 0.62f * scaleMult;
             _overheadDisc.localScale = new Vector3(d, d, 1f);
         }
 

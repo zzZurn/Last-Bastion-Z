@@ -435,6 +435,36 @@ public static class UnitBlockVisualizer
             skinColor = new Color(0.42f, 0.38f, 0.20f); // Volatile Charred Olive Bomber Zombie
             scale = 1.15f;
         }
+        else if (variant == "Spitter")
+        {
+            skinColor = new Color(0.28f, 0.72f, 0.22f); // Bioluminescent Acid Green
+            scale = 0.94f;
+        }
+        else if (variant == "Howler")
+        {
+            skinColor = new Color(0.46f, 0.18f, 0.38f); // Crimson-Violet War Howler
+            scale = 1.22f;
+        }
+        else if (variant == "Leaper")
+        {
+            skinColor = new Color(0.18f, 0.20f, 0.26f); // Obsidian Stalker Hunter
+            scale = 0.92f;
+        }
+        else if (variant == "Broodmother")
+        {
+            skinColor = new Color(0.36f, 0.22f, 0.44f); // Bloated Parasite Hive Mother
+            scale = 1.45f;
+        }
+        else if (variant == "Crawler")
+        {
+            skinColor = new Color(0.38f, 0.58f, 0.26f); // Fast Parasite Hatchling
+            scale = 0.56f;
+        }
+        else if (variant == "CryoHazmat")
+        {
+            skinColor = new Color(0.85f, 0.70f, 0.16f); // Yellow Hazmat Disruptor Suit
+            scale = 1.18f;
+        }
         else if (variant == "Buffed")
         {
             skinColor = new Color(0.55f, 0.22f, 0.16f); // Heavy Crimson/Rust Muscular Zombie
@@ -475,7 +505,15 @@ public static class UnitBlockVisualizer
             ? new Color(1f, 0.4f, 0f)
             : (variant == "Buffed"
                 ? new Color(1f, 0.72f, 0.15f)
-                : (variant == "Bombaz" ? new Color(1f, 0.65f, 0.05f) : new Color(1f, 0.12f, 0.1f)));
+                : (variant == "Bombaz"
+                    ? new Color(1f, 0.65f, 0.05f)
+                    : (variant == "Spitter"
+                        ? new Color(0.55f, 1.0f, 0.15f)
+                        : (variant == "Howler"
+                            ? new Color(1.0f, 0.25f, 0.85f)
+                            : (variant == "CryoHazmat"
+                                ? new Color(0.20f, 0.95f, 1.0f)
+                                : new Color(1f, 0.12f, 0.1f))))));
 
         var eyeL = GameObject.CreatePrimitive(PrimitiveType.Cube);
         eyeL.transform.SetParent(head.transform, false);
@@ -588,6 +626,117 @@ public static class UnitBlockVisualizer
                 Object.Destroy(pauldron.GetComponent<Collider>());
                 pauldron.GetComponent<MeshRenderer>().material = bossPlateMat;
             }
+        }
+        else if (variant == "Spitter")
+        {
+            // Glowing Bioluminescent Acid Sacs on Back and Throat
+            Material acidMat = MakeMat(new Color(0.45f, 1.0f, 0.18f), 0.15f, 0.85f);
+            var backSac = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            backSac.name = "SpitterBackAcidSac";
+            backSac.transform.SetParent(visualGroup.transform, false);
+            backSac.transform.localScale = new Vector3(0.52f * scale, 0.56f * scale, 0.44f * scale);
+            backSac.transform.localPosition = new Vector3(0f, 0.66f * scale, -0.26f * scale);
+            Object.Destroy(backSac.GetComponent<Collider>());
+            backSac.GetComponent<MeshRenderer>().material = acidMat;
+
+            var throatSac = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            throatSac.name = "SpitterThroatSac";
+            throatSac.transform.SetParent(visualGroup.transform, false);
+            throatSac.transform.localScale = new Vector3(0.34f * scale, 0.28f * scale, 0.32f * scale);
+            throatSac.transform.localPosition = new Vector3(0f, 0.84f * scale, 0.26f * scale);
+            Object.Destroy(throatSac.GetComponent<Collider>());
+            throatSac.GetComponent<MeshRenderer>().material = acidMat;
+        }
+        else if (variant == "Howler")
+        {
+            // Tactical War Banner / Siren Pole & Glowing Acoustic Amplifier on Back
+            var pole = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            pole.name = "HowlerBannerPole";
+            pole.transform.SetParent(visualGroup.transform, false);
+            pole.transform.localScale = new Vector3(0.09f * scale, 0.75f * scale, 0.09f * scale);
+            pole.transform.localPosition = new Vector3(0f, 1.15f * scale, -0.24f * scale);
+            Object.Destroy(pole.GetComponent<Collider>());
+            pole.GetComponent<MeshRenderer>().material = MakeMat(new Color(0.25f, 0.22f, 0.28f), 0.6f, 0.5f);
+
+            var beacon = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            beacon.name = "HowlerSirenBeacon";
+            beacon.transform.SetParent(visualGroup.transform, false);
+            beacon.transform.localScale = new Vector3(0.34f * scale, 0.34f * scale, 0.34f * scale);
+            beacon.transform.localPosition = new Vector3(0f, 1.85f * scale, -0.24f * scale);
+            Object.Destroy(beacon.GetComponent<Collider>());
+            beacon.GetComponent<MeshRenderer>().material = MakeMat(new Color(1.0f, 0.22f, 0.75f), 0.3f, 0.9f);
+        }
+        else if (variant == "Leaper")
+        {
+            // Elongated Crimson Predator Claws & Dorsal Hunter Spines
+            Material clawMat = MakeMat(new Color(0.95f, 0.15f, 0.20f), 0.7f, 0.7f);
+            armL.transform.localScale = new Vector3(0.18f * scale, 0.18f * scale, 0.92f * scale);
+            armR.transform.localScale = new Vector3(0.18f * scale, 0.18f * scale, 0.92f * scale);
+
+            foreach (float xClaw in new float[] { -0.38f, 0.38f })
+            {
+                var claw = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                claw.name = "LeaperClawTip";
+                claw.transform.SetParent(visualGroup.transform, false);
+                claw.transform.localScale = new Vector3(0.14f * scale, 0.24f * scale, 0.35f * scale);
+                claw.transform.localPosition = new Vector3(xClaw * scale, 0.62f * scale, 0.80f * scale);
+                Object.Destroy(claw.GetComponent<Collider>());
+                claw.GetComponent<MeshRenderer>().material = clawMat;
+            }
+
+            var spine = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            spine.name = "LeaperDorsalSpine";
+            spine.transform.SetParent(visualGroup.transform, false);
+            spine.transform.localScale = new Vector3(0.14f * scale, 0.45f * scale, 0.28f * scale);
+            spine.transform.localPosition = new Vector3(0f, 0.78f * scale, -0.26f * scale);
+            Object.Destroy(spine.GetComponent<Collider>());
+            spine.GetComponent<MeshRenderer>().material = clawMat;
+        }
+        else if (variant == "Broodmother")
+        {
+            // Bloated Wide Hive Carapace + Bioluminescent Parasite EggClusters on Back
+            torso.transform.localScale = new Vector3(0.84f * scale, 0.80f * scale, 0.64f * scale);
+            Material eggMat = MakeMat(new Color(0.65f, 0.95f, 0.22f), 0.2f, 0.85f);
+            Vector3[] eggOffsets = new Vector3[]
+            {
+                new Vector3(-0.24f, 0.72f, -0.28f),
+                new Vector3( 0.24f, 0.72f, -0.28f),
+                new Vector3(-0.18f, 0.46f, -0.32f),
+                new Vector3( 0.18f, 0.46f, -0.32f)
+            };
+            for (int e = 0; e < eggOffsets.Length; e++)
+            {
+                var egg = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                egg.name = "BroodEggSac_" + e;
+                egg.transform.SetParent(visualGroup.transform, false);
+                egg.transform.localScale = new Vector3(0.32f * scale, 0.32f * scale, 0.30f * scale);
+                egg.transform.localPosition = eggOffsets[e] * scale;
+                Object.Destroy(egg.GetComponent<Collider>());
+                egg.GetComponent<MeshRenderer>().material = eggMat;
+            }
+        }
+        else if (variant == "CryoHazmat")
+        {
+            // Twin Pressurized Cryo-Nitrogen Tanks on Back + Frosted Respirator Visor
+            Material cryoMat = MakeMat(new Color(0.18f, 0.88f, 1.0f), 0.45f, 0.88f);
+            foreach (float xOff in new float[] { -0.17f, 0.17f })
+            {
+                var tank = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                tank.name = "CryoNitrogenTank";
+                tank.transform.SetParent(visualGroup.transform, false);
+                tank.transform.localScale = new Vector3(0.24f * scale, 0.34f * scale, 0.24f * scale);
+                tank.transform.localPosition = new Vector3(xOff * scale, 0.60f * scale, -0.28f * scale);
+                Object.Destroy(tank.GetComponent<Collider>());
+                tank.GetComponent<MeshRenderer>().material = cryoMat;
+            }
+
+            var visor = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            visor.name = "HazmatCryoVisor";
+            visor.transform.SetParent(head.transform, false);
+            visor.transform.localScale = new Vector3(0.86f, 0.42f, 0.22f);
+            visor.transform.localPosition = new Vector3(0f, 0.05f, 0.44f);
+            Object.Destroy(visor.GetComponent<Collider>());
+            visor.GetComponent<MeshRenderer>().material = cryoMat;
         }
 
         // 6. Elite Upgrade Crown / Glowing Shoulder Spikes (if Elite non-boss)

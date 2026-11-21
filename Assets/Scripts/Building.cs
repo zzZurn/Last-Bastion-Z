@@ -62,7 +62,7 @@ public class Building : MonoBehaviour
                 break;
             case BuildingType.HealStation:
                 maxHealth = 95f;
-                spawnInterval = 20.0f; // Nerfed further: 1 medic every 20.0s (was 16.0s)
+                spawnInterval = 15.0f; // Rebalanced: 1 medic every 15.0s (was 20.0s) to sustain center arc defense
                 maxSpawnCount = 0;
                 break;
             case BuildingType.SpecialForceDepot:
@@ -301,11 +301,11 @@ public class Building : MonoBehaviour
     private void UpdateFrontlineSniperTower()
     {
         // Frontline Sniper Tower stats:
-        // - Range: 14.0m (same as mobile Sniper)
+        // - Range: 20.0m (expanded from 14.0m to cover the center 250° defense formation)
         // - Damage: 75.0 dmg / shot (2x mobile Sniper's 37.5 dmg!)
         // - Fire Rate: 1.0s interval (75.0 DPS)
         // - Tradeoff: Non-piercing shots & stationary structure
-        const float TOWER_RANGE = 14.0f;
+        const float TOWER_RANGE = 20.0f;
         const float TOWER_FIRE_INTERVAL = 1.0f;
         const float TOWER_DAMAGE = 75.0f;
 
@@ -508,10 +508,10 @@ public class Building : MonoBehaviour
                     break;
 
                 case BuildingType.LightTankFactory:
-                    // Light Tank: Very slow (1.1 m/s), 3x DPS (400 dmg / 4.0s = 100.0 DPS = 3x of 33.3 DPS!), 4s/shot, 3x3 cells AOE (halfExtent = 3.0m)
+                    // Light Tank: Rebalanced move speed (1.8 m/s), 3x DPS (400 dmg / 4.0s = 100.0 DPS), 4s/shot, 3x3 cells AOE (halfExtent = 3.0m)
                     soldier.isBurstMode = false;
                     soldier.isLightTank = true;
-                    soldier.moveSpeed = 1.1f; // Very slow move speed
+                    soldier.moveSpeed = 1.8f; // Increased from 1.1f so tanks deploy to the center junction promptly
                     soldier.damage = 400f;    // 400 dmg / 4.0s = 100.0 DPS (3x of 33.33 DPS!)
                     soldier.fireRate = 4.0f;  // 4 seconds per shot
                     soldier.range = 12.0f;

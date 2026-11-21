@@ -19,6 +19,7 @@ public class WaveManager : MonoBehaviour
     public int zombiesSpawned = 0;
     public int zombiesRemaining = 0;
     public bool isSpawning = false;
+    private int spittersSpawnedInWave = 0;
 
     // Track randomly selected spawn slots for Tyrant Bosses in current wave
     // Tyrant Boss spawns strictly after Day 4 onwards (Day 5+), +1 boss every 5 waves
@@ -54,6 +55,7 @@ public class WaveManager : MonoBehaviour
         totalZombiesInWave = 0;
         zombiesSpawned = 0;
         zombiesRemaining = 0;
+        spittersSpawnedInWave = 0;
         bossSpawnIndices.Clear();
         activeZombies.Clear();
     }
@@ -80,6 +82,7 @@ public class WaveManager : MonoBehaviour
 
         zombiesSpawned = 0;
         zombiesRemaining = totalZombiesInWave;
+        spittersSpawnedInWave = 0;
         activeZombies.Clear();
 
         // Tyrant Boss Configuration:
@@ -201,29 +204,9 @@ public class WaveManager : MonoBehaviour
         {
             variant = "Boss";
         }
-        else if (day >= 6 && Random.value < 0.18f)
+        else
         {
-            variant = "Buffed"; // "Buffed Zombie" in later stages with former boss stats
-        }
-        else if (day > 10 && Random.value < 0.20f)
-        {
-            variant = "Bombaz"; // Suicide Bomber Zombie: spawns after Wave 10 (Wave 11+)
-        }
-        else if (day >= 4 && Random.value < 0.22f)
-        {
-            variant = "Armored";
-        }
-        else if (day >= 4 && Random.value < 0.25f)
-        {
-            variant = "Berserker";
-        }
-        else if (day >= 2 && Random.value < 0.25f)
-        {
-            variant = "Runner";
-        }
-        else if (day >= 5 && Random.value < 0.2f)
-        {
-            variant = "Tank";
+            variant = PickBalancedZombieVariant(day);
         }
 
         // Elite Battle Route: Randomly upgrade spawned non-boss zombies into Elite units (Base 18%, Climax Wave 30 & Wave 40+ is 2x = 36%)
@@ -269,6 +252,11 @@ public class WaveManager : MonoBehaviour
             z.isBombaz = (variant == "Bombaz");
             z.isBombazEnraged = false;
             z.bombazBaseNormalSpeed = baseSpeed;
+            z.isSpitter = (variant == "Spitter");
+            z.isHowler = (variant == "Howler");
+            z.isLeaper = (variant == "Leaper");
+            z.isBroodmother = (variant == "Broodmother");
+            z.isCryoHazmat = (variant == "CryoHazmat");
             z.isEliteUpgrade = false;
 
             if (variant == "Boss")
@@ -306,6 +294,54 @@ public class WaveManager : MonoBehaviour
                 z.bombazBaseNormalSpeed = baseSpeed;
                 z.moveSpeed = baseSpeed * 0.75f;
                 z.damage = baseDmg * 2.2f;
+            }
+            else if (variant == "Spitter")
+            {
+                spittersSpawnedInWave++;
+                z.name = $"AcidSpitter_{zombiesSpawned + 1}";
+                z.maxHealth = baseHp * 0.68f;
+                z.currentHealth = z.maxHealth;
+                z.moveSpeed = baseSpeed * 0.92f;
+                z.damage = baseDmg * 0.42f;
+                z.attackRange = 6.8f; // Inside SMG 8.0m range so frontline infantry can always shoot back!
+                z.attackRate = 2.6f;
+            }
+            else if (variant == "Howler")
+            {
+                z.name = $"HowlerZombie_{zombiesSpawned + 1}";
+                z.maxHealth = baseHp * 1.45f;
+                z.currentHealth = z.maxHealth;
+                z.moveSpeed = baseSpeed * 0.88f;
+                z.damage = baseDmg * 1.0f;
+                z.attackRate = 1.2f;
+            }
+            else if (variant == "Leaper")
+            {
+                z.name = $"LeaperZombie_{zombiesSpawned + 1}";
+                z.maxHealth = baseHp * 0.90f;
+                z.currentHealth = z.maxHealth;
+                z.moveSpeed = Mathf.Max(2.4f, baseSpeed * 1.25f);
+                z.damage = baseDmg * 1.25f;
+                z.attackRate = 0.9f;
+            }
+            else if (variant == "Broodmother")
+            {
+                z.name = $"BroodmotherZombie_{zombiesSpawned + 1}";
+                z.maxHealth = baseHp * 2.15f;
+                z.currentHealth = z.maxHealth;
+                z.moveSpeed = 1.05f;
+                z.damage = baseDmg * 1.3f;
+                z.attackRate = 1.4f;
+                z.attackRange = 1.45f;
+            }
+            else if (variant == "CryoHazmat")
+            {
+                z.name = $"CryoHazmatZombie_{zombiesSpawned + 1}";
+                z.maxHealth = baseHp * 1.60f;
+                z.currentHealth = z.maxHealth;
+                z.moveSpeed = baseSpeed * 0.92f;
+                z.damage = baseDmg * 1.1f;
+                z.damageResistance = 0.20f; // 20% armored hazmat suit resistance
             }
             else if (variant == "Armored")
             {
@@ -348,6 +384,68 @@ public class WaveManager : MonoBehaviour
             }
 
             activeZombies.Add(z);
+        }
+    }
+
+    /// <summary>
+    /// Selects a non-boss zombie variant using a stage-balanced 2-tier weighted pool:
+    /// - Core frontline zombies (Walker, Runner, Armored, Berserker, Tank) make up >= 55% of the horde.
+    /// - Special skill zombies (Buffed, Spitter, Bombaz, Howler, Leaper, Broodmother, CryoHazmat) scale from 20% at Stage 6 up to 45% at Stage 22+.
+    /// </summary>
+    private string PickBalancedZombieVariant(int day)
+    {
+        if (day >= 6)
+        {
+            float specialChance = (day >= 22) ? 0.42f : ((day >= 18) ? 0.36f : ((day >= 16) ? 0.30f : ((day >= 11) ? 0.24f : 0.14f)));
+            if (Random.value < specialChance)
+            {
+                int maxSpittersForStage = (day < 7) ? 0 : ((day <= 9) ? 1 : ((day <= 14) ? 2 : ((day <= 21) ? 3 : 4)));
+                bool canSpawnSpitter = (day >= 7) && (spittersSpawnedInWave < maxSpittersForStage);
+
+                int wBuffed = 14;
+                int wSpitter = canSpawnSpitter ? 8 : 0;
+                int wBombaz = (day > 10) ? 18 : 0;
+                int wHowler = (day >= 12) ? 15 : 0;
+                int wLeaper = (day >= 16) ? 18 : 0;
+                int wBrood = (day >= 18) ? 13 : 0;
+                int wCryo = (day >= 22) ? 15 : 0;
+
+                int totalSpecialW = wBuffed + wSpitter + wBombaz + wHowler + wLeaper + wBrood + wCryo;
+                int roll = Random.Range(0, totalSpecialW);
+                if ((roll -= wSpitter) < 0) return "Spitter";
+                if ((roll -= wBombaz) < 0) return "Bombaz";
+                if ((roll -= wHowler) < 0) return "Howler";
+                if ((roll -= wLeaper) < 0) return "Leaper";
+                if ((roll -= wBrood) < 0) return "Broodmother";
+                if ((roll -= wCryo) < 0) return "CryoHazmat";
+                return "Buffed";
+            }
+        }
+
+        int wWalker = 36;
+        int wRunner = (day >= 2) ? 22 : 0;
+        int wArmored = (day >= 4) ? 18 : 0;
+        int wBerserker = (day >= 4) ? 18 : 0;
+        int wTank = (day >= 5) ? 14 : 0;
+
+        int totalCoreW = wWalker + wRunner + wArmored + wBerserker + wTank;
+        int coreRoll = Random.Range(0, totalCoreW);
+        if ((coreRoll -= wRunner) < 0) return "Runner";
+        if ((coreRoll -= wArmored) < 0) return "Armored";
+        if ((coreRoll -= wBerserker) < 0) return "Berserker";
+        if ((coreRoll -= wTank) < 0) return "Tank";
+        return "Walker";
+    }
+
+    public void RegisterExtraSpawnedZombie(Zombie extraZombie)
+    {
+        if (extraZombie == null) return;
+        totalZombiesInWave++;
+        zombiesSpawned++;
+        zombiesRemaining++;
+        if (!activeZombies.Contains(extraZombie))
+        {
+            activeZombies.Add(extraZombie);
         }
     }
 

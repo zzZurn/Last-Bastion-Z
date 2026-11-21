@@ -48,6 +48,56 @@ public class Soldier : MonoBehaviour
     private Transform target;
     public bool isDead { get; private set; } = false;
 
+    // Center Circular Arc Formation (250° wide defense centered on East around the Center Junction at (0, 0, 0))
+    private static readonly Vector3 CENTER_FORMATION_ORIGIN = Vector3.zero;
+    private const float FORMATION_ARC_DEGREES = 250f;
+    private const float FORMATION_ARC_RAD = FORMATION_ARC_DEGREES * Mathf.Deg2Rad;
+    private const float FORMATION_ARRIVAL_THRESHOLD = 0.15f;
+    private const float GUARDIAN_INTERCEPT_LEASH = 3.5f;
+    private const float GUARDIAN_MAX_SLOT_OFFSET = 4.2f;
+    private const float HEALER_MAX_CENTER_RADIUS = 13.5f;
+
+    private static readonly float[] GUARDIAN_RING_RADII = { 13.5f, 12.0f, 14.2f };
+    private static readonly float[] INFANTRY_RING_RADII = { 11.2f, 9.8f, 12.5f, 8.4f, 6.8f, 5.2f };
+    private static readonly float[] LIGHT_TANK_RING_RADII = { 8.6f, 10.2f, 7.0f };
+    private static readonly float[] HEALER_RING_RADII = { 6.6f, 5.2f, 7.8f };
+    private static readonly float[] SNIPER_RING_RADII = { 4.5f, 2.8f, 5.8f };
+
+    private enum FormationRingGroup
+    {
+        Guardian = 0,
+        Infantry = 1,
+        LightTank = 2,
+        Healer = 3,
+        Sniper = 4
+    }
+
+    private static int nextFormationOrderId = 1;
+    private static int lastFormationUpdateFrame = -1;
+    private static readonly List<Soldier>[] formationBuckets = new List<Soldier>[]
+    {
+        new List<Soldier>(),
+        new List<Soldier>(),
+        new List<Soldier>(),
+        new List<Soldier>(),
+        new List<Soldier>()
+    };
+    private static readonly System.Comparison<Soldier> formationOrderComparison =
+        (a, b) => a.formationOrderId.CompareTo(b.formationOrderId);
+
+    private int formationOrderId = 0;
+    private Vector3 assignedFormationPos;
+    private Vector3 assignedOutwardDir = Vector3.right;
+    private bool hasAssignedFormationSlot = false;
+    private float cryoSlowTimer = 0f;
+    public bool IsCryoSlowed => cryoSlowTimer > 0f;
+
+    public void ApplyCryoSlow(float duration)
+    {
+        if (isDead) return;
+        cryoSlowTimer = Mathf.Max(cryoSlowTimer, duration);
+    }
+
     // HP Bar texture cache & damage visibility timer
     private float hpBarVisibleTimer = 0f;
     private const float HP_BAR_DISPLAY_DURATION = 3.0f;
@@ -55,6 +105,10 @@ public class Soldier : MonoBehaviour
 
     void OnEnable()
     {
+        if (formationOrderId == 0)
+        {
+            formationOrderId = nextFormationOrderId++;
+        }
         if (!ActiveSoldiers.Contains(this))
         {
             ActiveSoldiers.Add(this);
@@ -125,30 +179,57 @@ public class Soldier : MonoBehaviour
             return;
         }
 
+        if (cryoSlowTimer > 0f)
+        {
+            cryoSlowTimer = Mathf.Max(0f, cryoSlowTimer - Time.deltaTime);
+        }
+        float cryoRateScale = (cryoSlowTimer > 0f) ? 0.65f : 1.0f;
+
+        if (fireTimer > 0f)
+        {
+            fireTimer = Mathf.Max(0f, fireTimer - Time.deltaTime * cryoRateScale);
+        }
+
+        UpdateCenterCircleFormation();
         FindTarget();
 
         if (target != null)
         {
-            float dist = Vector3.Distance(transform.position, target.position);
+            float dist = FlatDistance(transform.position, target.position);
             if (dist > range)
             {
-                // Move toward target via Cross road waypoints to stay out of hills
-                Vector3 waypoint = Zombie.GetNextCrossWaypoint(transform.position, target.position);
-                Vector3 toWaypoint = waypoint - transform.position;
-                toWaypoint.y = 0;
-                if (toWaypoint != Vector3.zero)
+                // Only melee interceptors (Guardian within leash) or Medics moving to heal an ally inside the center move toward target
+                Vector3 moveDest = target.position;
+                if (isGuardian && hasAssignedFormationSlot)
                 {
-                    Vector3 dir = toWaypoint.normalized;
-                    transform.position += dir * moveSpeed * Time.deltaTime;
-                    transform.rotation = Quaternion.LookRotation(dir);
+                    Vector3 offsetFromSlot = moveDest - assignedFormationPos;
+                    offsetFromSlot.y = 0f;
+                    if (offsetFromSlot.magnitude > GUARDIAN_MAX_SLOT_OFFSET)
+                    {
+                        moveDest = assignedFormationPos + offsetFromSlot.normalized * GUARDIAN_MAX_SLOT_OFFSET;
+                    }
                 }
+                else if (isHealer)
+                {
+                    Vector3 offsetFromCenter = moveDest - CENTER_FORMATION_ORIGIN;
+                    offsetFromCenter.y = 0f;
+                    if (offsetFromCenter.magnitude > HEALER_MAX_CENTER_RADIUS)
+                    {
+                        moveDest = CENTER_FORMATION_ORIGIN + offsetFromCenter.normalized * HEALER_MAX_CENTER_RADIUS;
+                    }
+                }
+
+                MoveAlongCrossTowards(moveDest, moveSpeed * cryoRateScale);
             }
             else
             {
                 // Face target while aiming/shooting
-                Vector3 aimDir = (target.position - transform.position).normalized;
-                aimDir.y = 0;
-                if (aimDir != Vector3.zero) transform.rotation = Quaternion.LookRotation(aimDir);
+                Vector3 aimDir = target.position - transform.position;
+                aimDir.y = 0f;
+                if (aimDir.sqrMagnitude > 0.0001f)
+                {
+                    transform.rotation = Quaternion.LookRotation(aimDir.normalized);
+                }
 
                 // Shoot logic
                 if (isBurstMode)
@@ -158,38 +239,188 @@ public class Soldier : MonoBehaviour
                         StartCoroutine(FireBurstRoutine());
                     }
                 }
-                else
+                else if (fireTimer <= 0f)
                 {
-                    fireTimer -= Time.deltaTime;
-                    if (fireTimer <= 0f)
-                    {
-                        SpawnBullet(target);
-                        fireTimer = fireRate;
-                    }
+                    SpawnBullet(target);
+                    fireTimer = fireRate;
                 }
             }
             transform.position = Zombie.ClampPositionToCross(transform.position);
         }
-        else
+        else if (hasAssignedFormationSlot)
         {
-            // Patrol forward towards active vectors
-            Vector3 patrolDir = Vector3.right;
-            if (transform.position.z > 14.8f && Mathf.Abs(transform.position.x) <= 14.8f)
+            // March to assigned slot on the Center Circular Formation (+40% Deployment Sprint when running from base to slot), then hold position facing outward
+            float distToSlot = FlatDistance(transform.position, assignedFormationPos);
+            if (distToSlot > FORMATION_ARRIVAL_THRESHOLD)
             {
-                patrolDir = Vector3.back;
+                float deploySprintMult = (distToSlot > 2.5f) ? 1.40f : 1.0f;
+                MoveAlongCrossTowards(assignedFormationPos, moveSpeed * deploySprintMult * cryoRateScale);
+                transform.position = Zombie.ClampPositionToCross(transform.position);
             }
-            else if (transform.position.z < -14.8f && Mathf.Abs(transform.position.x) <= 14.8f)
+            else
             {
-                patrolDir = Vector3.forward;
+                transform.position = new Vector3(assignedFormationPos.x, transform.position.y, assignedFormationPos.z);
+                if (assignedOutwardDir.sqrMagnitude > 0.0001f)
+                {
+                    Quaternion targetRot = Quaternion.LookRotation(assignedOutwardDir);
+                    transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, 360f * Time.deltaTime);
+                }
             }
-
-            transform.position += patrolDir * moveSpeed * 0.5f * Time.deltaTime;
-            transform.rotation = Quaternion.LookRotation(patrolDir);
-            transform.position = Zombie.ClampPositionToCross(transform.position);
         }
 
         // Cleanup if out of map bounds
         if (transform.position.x > 46f || Mathf.Abs(transform.position.z) > 46f) Destroy(gameObject);
+    }
+
+    private static float FlatDistance(Vector3 a, Vector3 b)
+    {
+        float dx = a.x - b.x;
+        float dz = a.z - b.z;
+        return Mathf.Sqrt(dx * dx + dz * dz);
+    }
+
+    private void MoveAlongCrossTowards(Vector3 destination, float speed)
+    {
+        Vector3 waypoint = Zombie.GetNextCrossWaypoint(transform.position, destination);
+        Vector3 toWaypoint = waypoint - transform.position;
+        toWaypoint.y = 0f;
+        float dist = toWaypoint.magnitude;
+        if (dist <= 0.0001f) return;
+
+        Vector3 dir = toWaypoint / dist;
+        float step = speed * Time.deltaTime;
+        if (dist <= step)
+        {
+            transform.position = new Vector3(waypoint.x, transform.position.y, waypoint.z);
+        }
+        else
+        {
+            transform.position += dir * step;
+        }
+        transform.rotation = Quaternion.LookRotation(dir);
+    }
+
+    private FormationRingGroup GetFormationRingGroup()
+    {
+        if (isGuardian) return FormationRingGroup.Guardian;
+        if (isLightTank) return FormationRingGroup.LightTank;
+        if (isHealer) return FormationRingGroup.Healer;
+        if (isSniper || range >= 13f) return FormationRingGroup.Sniper;
+        return FormationRingGroup.Infantry;
+    }
+
+    private static void UpdateCenterCircleFormation()
+    {
+        if (lastFormationUpdateFrame == Time.frameCount) return;
+        lastFormationUpdateFrame = Time.frameCount;
+
+        for (int g = 0; g < formationBuckets.Length; g++)
+        {
+            formationBuckets[g].Clear();
+        }
+
+        for (int i = ActiveSoldiers.Count - 1; i >= 0; i--)
+        {
+            Soldier s = ActiveSoldiers[i];
+            if (s == null || s.isDead)
+            {
+                ActiveSoldiers.RemoveAt(i);
+                continue;
+            }
+            if (s.isICBMLauncher) continue;
+
+            if (s.formationOrderId == 0)
+            {
+                s.formationOrderId = nextFormationOrderId++;
+            }
+
+            FormationRingGroup group = s.GetFormationRingGroup();
+            formationBuckets[(int)group].Add(s);
+        }
+
+        for (int g = 0; g < formationBuckets.Length; g++)
+        {
+            if (formationBuckets[g].Count > 1)
+            {
+                formationBuckets[g].Sort(formationOrderComparison);
+            }
+        }
+
+        AssignConcentricRingSlots(formationBuckets[(int)FormationRingGroup.Guardian],  GUARDIAN_RING_RADII,   2.30f);
+        AssignConcentricRingSlots(formationBuckets[(int)FormationRingGroup.Infantry],  INFANTRY_RING_RADII,   1.85f);
+        AssignConcentricRingSlots(formationBuckets[(int)FormationRingGroup.LightTank], LIGHT_TANK_RING_RADII, 3.20f);
+        AssignConcentricRingSlots(formationBuckets[(int)FormationRingGroup.Healer],    HEALER_RING_RADII,     1.90f);
+        AssignConcentricRingSlots(formationBuckets[(int)FormationRingGroup.Sniper],    SNIPER_RING_RADII,     1.65f);
+    }
+
+    private static void AssignConcentricRingSlots(List<Soldier> group, float[] ringRadii, float minArcSpacing)
+    {
+        int total = group.Count;
+        if (total == 0) return;
+
+        float halfArcRad = FORMATION_ARC_RAD * 0.5f; // -125° to +125° centered on East (0°)
+        int assigned = 0;
+
+        for (int rIdx = 0; rIdx < ringRadii.Length && assigned < total; rIdx++)
+        {
+            float radius = ringRadii[rIdx];
+            int remaining = total - assigned;
+            bool isLastRing = (rIdx == ringRadii.Length - 1);
+
+            int capacity;
+            if (isLastRing)
+            {
+                capacity = remaining;
+            }
+            else
+            {
+                float arcLength = radius * FORMATION_ARC_RAD;
+                capacity = Mathf.Max(3, Mathf.FloorToInt(arcLength / Mathf.Max(0.5f, minArcSpacing)) + 1);
+            }
+
+            int countInRing = Mathf.Min(remaining, capacity);
+
+            for (int i = 0; i < countInRing; i++)
+            {
+                float angle;
+                if (countInRing == 1)
+                {
+                    angle = 0f; // Directly East
+                }
+                else if (countInRing == 2)
+                {
+                    // Symmetric NE & SE so 2 units guard the front rather than only the rear tips
+                    angle = (i == 0 ? -0.5f : 0.5f) * halfArcRad;
+                }
+                else if (rIdx % 2 == 1)
+                {
+                    // Stagger overflow rings inside the 250° arc so units interlock cleanly
+                    float step = FORMATION_ARC_RAD / countInRing;
+                    angle = -halfArcRad + (i + 0.5f) * step;
+                }
+                else
+                {
+                    // Full 250° arc from -125° (SW-South) through 0° (East) to +125° (NW-North)
+                    float t = (float)i / (countInRing - 1);
+                    angle = Mathf.Lerp(-halfArcRad, halfArcRad, t);
+                }
+
+                Soldier s = group[assigned + i];
+                float cos = Mathf.Cos(angle);
+                float sin = Mathf.Sin(angle);
+
+                Vector3 outwardDir = new Vector3(cos, 0f, sin);
+                s.assignedFormationPos = new Vector3(
+                    CENTER_FORMATION_ORIGIN.x + cos * radius,
+                    s.transform.position.y,
+                    CENTER_FORMATION_ORIGIN.z + sin * radius
+                );
+                s.assignedOutwardDir = outwardDir;
+                s.hasAssignedFormationSlot = true;
+            }
+
+            assigned += countInRing;
+        }
     }
 
     private void UpdateICBMLauncher()
@@ -529,7 +760,8 @@ public class Soldier : MonoBehaviour
 
             if (i < burstCount - 1)
             {
-                yield return new WaitForSeconds(burstInnerDelay); // 0.12s
+                float innerDelay = (cryoSlowTimer > 0f) ? (burstInnerDelay * 1.45f) : burstInnerDelay;
+                yield return new WaitForSeconds(innerDelay); // 0.12s (or slowed by Cryo)
             }
         }
 
@@ -544,7 +776,8 @@ public class Soldier : MonoBehaviour
             }
         }
 
-        yield return new WaitForSeconds(burstPauseDelay);
+        float pauseDelay = (cryoSlowTimer > 0f) ? (burstPauseDelay * 1.45f) : burstPauseDelay;
+        yield return new WaitForSeconds(pauseDelay);
         isFiringBurst = false;
     }
 
@@ -653,15 +886,17 @@ public class Soldier : MonoBehaviour
         float closestDist = Mathf.Infinity;
         target = null;
 
-        // Medic priority: Heal wounded allies first!
+        // Medic priority: Heal wounded allies first (within range, or inside the center defense circle)
         if (isHealer)
         {
-            Soldier[] allies = FindObjectsByType<Soldier>(FindObjectsSortMode.None);
-            foreach (Soldier s in allies)
+            for (int i = 0; i < ActiveSoldiers.Count; i++)
             {
-                if (s == null || s == this || s.health >= s.maxHealth) continue;
-                float d = Vector3.Distance(transform.position, s.transform.position);
-                if (d < closestDist && d <= range * 1.5f)
+                Soldier s = ActiveSoldiers[i];
+                if (s == null || s == this || s.isDead || s.health >= s.maxHealth) continue;
+                float d = FlatDistance(transform.position, s.transform.position);
+                bool inImmediateRange = d <= range;
+                bool inCenterDefense = FlatDistance(s.transform.position, CENTER_FORMATION_ORIGIN) <= 16.5f && d <= range * 2.8f;
+                if ((inImmediateRange || inCenterDefense) && d < closestDist)
                 {
                     closestDist = d;
                     target = s.transform;
@@ -669,16 +904,29 @@ public class Soldier : MonoBehaviour
             }
         }
 
-        // If not healing or no wounded allies, hunt zombies
+        // If not healing or no wounded allies, engage zombies without abandoning the center circular formation
         if (target == null)
         {
             closestDist = Mathf.Infinity;
             Zombie[] zombies = FindObjectsByType<Zombie>(FindObjectsSortMode.None);
+            float maxSearchRange = isGuardian ? (range + GUARDIAN_INTERCEPT_LEASH) : range;
+
             foreach (Zombie z in zombies)
             {
-                if (z == null) continue;
-                float d = Vector3.Distance(transform.position, z.transform.position);
-                if (d < closestDist && d < range * 1.5f)
+                if (z == null || z.isDead) continue;
+                float d = FlatDistance(transform.position, z.transform.position);
+                if (d > maxSearchRange) continue;
+
+                // Guardians may step slightly out of their outer-ring slot to intercept zombies near their sector,
+                // while ranged units strictly hold their circle slot and fire when enemies enter weapon range.
+                if (isGuardian && d > range)
+                {
+                    if (!hasAssignedFormationSlot) continue;
+                    float distFromSlot = FlatDistance(z.transform.position, assignedFormationPos);
+                    if (distFromSlot > GUARDIAN_MAX_SLOT_OFFSET + range) continue;
+                }
+
+                if (d < closestDist)
                 {
                     closestDist = d;
                     target = z.transform;
